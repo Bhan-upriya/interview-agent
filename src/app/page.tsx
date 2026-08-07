@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Bot, User, Send, CheckCircle2, AlertCircle, RefreshCw, 
+import {
+  Bot, User, Send, CheckCircle2, AlertCircle, RefreshCw,
   FileText, ArrowRight, Award, BarChart3, ChevronDown, ChevronUp,
   Download, Sparkles, SlidersHorizontal, LayoutDashboard, MessageSquare
 } from 'lucide-react';
@@ -23,17 +23,17 @@ export default function InterviewerDashboard() {
   const [selectedDomains, setSelectedDomains] = useState<AssessmentDomain[]>([]);
   const [isStarted, setIsStarted] = useState(false);
   const [activeTab, setActiveTab] = useState<'interview' | 'transcript'>('interview');
-  
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [evaluations, setEvaluations] = useState<TurnEvaluation[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  
-  const [totalScore, setTotalScore] = useState(40);
-  const [lastAccuracy, setLastAccuracy] = useState(75);
-  const [recentFeedback, setRecentFeedback] = useState('Assessment initiated. Awaiting candidate baseline.');
-  const [evaluatedBadges, setEvaluatedBadges] = useState<string[]>(['RAG Fundamentals']);
-  
+
+  const [totalScore, setTotalScore] = useState(0);
+  const [lastAccuracy, setLastAccuracy] = useState(0);
+  const [recentFeedback, setRecentFeedback] = useState('Assessment initiated. Awaiting first candidate answer.');
+  const [evaluatedBadges, setEvaluatedBadges] = useState<string[]>([]);
+
   const [showReportModal, setShowReportModal] = useState(false);
   const [showMobileScorecard, setShowMobileScorecard] = useState(false);
 
@@ -70,6 +70,13 @@ export default function InterviewerDashboard() {
   const handleStart = () => {
     if (selectedDomains.length === 0) return;
     setIsStarted(true);
+
+    // Reset initial metrics to zero
+    setTotalScore(0);
+    setLastAccuracy(0);
+    setRecentFeedback('Assessment initiated. Awaiting first candidate answer.');
+    setEvaluatedBadges([]);
+
     const initialMsg: Message = {
       id: '1',
       role: 'assistant',
@@ -86,8 +93,10 @@ export default function InterviewerDashboard() {
     setSelectedDomains([]);
     setMessages([]);
     setEvaluations([]);
-    setTotalScore(40);
-    setLastAccuracy(75);
+    setTotalScore(0);
+    setLastAccuracy(0);
+    setRecentFeedback('Assessment initiated. Awaiting first candidate answer.');
+    setEvaluatedBadges([]);
   };
 
   const handleSend = async (e?: React.FormEvent) => {
@@ -119,7 +128,7 @@ export default function InterviewerDashboard() {
       });
 
       const data = await res.json();
-      
+
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -189,11 +198,10 @@ export default function InterviewerDashboard() {
                       setSelectedDomains([...selectedDomains, d.id]);
                     }
                   }}
-                  className={`cursor-pointer p-5 rounded-2xl border transition-all duration-200 bg-white shadow-sm hover:shadow-md ${
-                    isSelected 
-                      ? 'border-amber-400 bg-amber-50/30 ring-2 ring-amber-400/20' 
-                      : 'border-stone-200 hover:border-stone-300'
-                  }`}
+                  className={`cursor-pointer p-5 rounded-2xl border transition-all duration-200 bg-white shadow-sm hover:shadow-md ${isSelected
+                    ? 'border-amber-400 bg-amber-50/30 ring-2 ring-amber-400/20'
+                    : 'border-stone-200 hover:border-stone-300'
+                    }`}
                 >
                   <div className="flex items-start justify-between mb-3">
                     <span className="text-2xl p-2 rounded-xl bg-stone-100">{d.icon}</span>
@@ -245,17 +253,15 @@ export default function InterviewerDashboard() {
           <div className="hidden sm:flex bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs font-medium">
             <button
               onClick={() => setActiveTab('interview')}
-              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                activeTab === 'interview' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-500 hover:text-stone-800'
-              }`}
+              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeTab === 'interview' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-500 hover:text-stone-800'
+                }`}
             >
               <MessageSquare className="w-3.5 h-3.5" /> Interview
             </button>
             <button
               onClick={() => setActiveTab('transcript')}
-              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                activeTab === 'transcript' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-500 hover:text-stone-800'
-              }`}
+              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeTab === 'transcript' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-500 hover:text-stone-800'
+                }`}
             >
               <FileText className="w-3.5 h-3.5" /> Transcript ({evaluations.length})
             </button>
@@ -279,10 +285,10 @@ export default function InterviewerDashboard() {
 
       {/* Main Content Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* Left Panel: Chat or Transcript View */}
         <div className="lg:col-span-2 flex flex-col space-y-4">
-          
+
           {/* Mobile Tab Switcher */}
           <div className="sm:hidden flex bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs font-medium">
             <button
@@ -380,18 +386,16 @@ function InterviewChat({
               transition={{ duration: 0.2 }}
               className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
             >
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs shrink-0 ${
-                isUser ? 'bg-violet-100 text-violet-700' : 'bg-teal-100 text-teal-700'
-              }`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs shrink-0 ${isUser ? 'bg-violet-100 text-violet-700' : 'bg-teal-100 text-teal-700'
+                }`}>
                 {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
               </div>
 
               <div className={`max-w-[82%] space-y-1 ${isUser ? 'items-end' : 'items-start'}`}>
-                <div className={`p-4 rounded-2xl text-sm leading-relaxed ${
-                  isUser 
-                    ? 'bg-violet-50/80 border border-violet-100 text-stone-800 rounded-tr-none' 
-                    : 'bg-stone-50 border border-stone-200/80 text-stone-800 rounded-tl-none'
-                }`}>
+                <div className={`p-4 rounded-2xl text-sm leading-relaxed ${isUser
+                  ? 'bg-violet-50/80 border border-violet-100 text-stone-800 rounded-tr-none'
+                  : 'bg-stone-50 border border-stone-200/80 text-stone-800 rounded-tl-none'
+                  }`}>
                   {m.content}
                 </div>
                 <div className={`text-[10px] text-stone-400 px-1 ${isUser ? 'text-right' : 'text-left'}`}>
@@ -646,11 +650,11 @@ function AssessmentReportModal({
   onClose: () => void;
 }) {
   const recommendation = totalScore >= 75 ? 'Strong Hire' : totalScore >= 55 ? 'Follow-up Needed' : 'Needs Growth';
-  const badgeColor = totalScore >= 75 
-    ? 'bg-teal-50 border-teal-200 text-teal-800' 
-    : totalScore >= 55 
-    ? 'bg-amber-50 border-amber-200 text-amber-800' 
-    : 'bg-rose-50 border-rose-200 text-rose-800';
+  const badgeColor = totalScore >= 75
+    ? 'bg-teal-50 border-teal-200 text-teal-800'
+    : totalScore >= 55
+      ? 'bg-amber-50 border-amber-200 text-amber-800'
+      : 'bg-rose-50 border-rose-200 text-rose-800';
 
   return (
     <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
