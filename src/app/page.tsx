@@ -37,6 +37,7 @@ export default function InterviewerDashboard() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [showMobileScorecard, setShowMobileScorecard] = useState(false);
 
+
   // --- LocalStorage Persistence ---
   useEffect(() => {
     const saved = localStorage.getItem('interview_session_v2');
@@ -48,9 +49,10 @@ export default function InterviewerDashboard() {
           setSelectedDomains(parsed.selectedDomains || []);
           setMessages(parsed.messages || []);
           setEvaluations(parsed.evaluations || []);
-          setTotalScore(parsed.totalScore || 40);
-          setLastAccuracy(parsed.lastAccuracy || 75);
-          setRecentFeedback(parsed.recentFeedback || '');
+          // Use ?? instead of || so 0 is recognized as a valid score
+          setTotalScore(parsed.totalScore ?? 0);
+          setLastAccuracy(parsed.lastAccuracy ?? 0);
+          setRecentFeedback(parsed.recentFeedback || 'Assessment initiated.');
           setEvaluatedBadges(parsed.evaluatedBadges || []);
         }
       } catch (e) {
