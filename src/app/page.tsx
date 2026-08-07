@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Sparkles, ArrowLeft, Send, RotateCcw, BarChart3, Zap, Search, Bot, Settings, Target } from 'lucide-react';
+import { Sparkles, ArrowLeft, Send, RotateCcw, Zap, Search, Bot, Settings, Target } from 'lucide-react';
+
 export default function Home() {
   const [isStarted, setIsStarted] = useState(false);
   const [selectedDomain, setSelectedDomain] = useState('');
@@ -12,10 +13,6 @@ export default function Home() {
   const [totalScore, setTotalScore] = useState(15);
   const [lastAccuracy, setLastAccuracy] = useState(88);
 
-  // Available domains list matching your clean UI style
-
-
-  // Inside your component:
   const domains = [
     { id: 'enterprise-rag', title: 'Enterprise RAG', subtitle: 'Chunking, hybrid search, reasoning & context windows', level: 'Intermediate', icon: <Zap className="w-5 h-5 text-amber-500" /> },
     { id: 'vector-search', title: 'Vector Search', subtitle: 'Embeddings, HNSW, quantization & distance metrics', level: 'Advanced', icon: <Search className="w-5 h-5 text-blue-500" /> },
@@ -24,7 +21,6 @@ export default function Home() {
     { id: 'fine-tuning', title: 'Fine-Tuning & LLMOps', subtitle: 'LoRA, evaluation metrics, guardrails & tracking', level: 'Advanced', icon: <Target className="w-5 h-5 text-rose-500" /> },
   ];
 
-  // Start Interview & Fetch Dynamic First Question based on selected domain
   const handleStartDomain = async (domainTitle: string) => {
     setSelectedDomain(domainTitle);
     setIsStarted(true);
@@ -47,7 +43,6 @@ export default function Home() {
     }
   };
 
-  // Reset Session & Return to Domain Selector
   const handleReset = () => {
     localStorage.clear();
     sessionStorage.clear();
@@ -57,7 +52,6 @@ export default function Home() {
     setShowModal(false);
   };
 
-  // Send candidate answer and get next domain-specific question
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputMessage.trim() || loading) return;
@@ -83,7 +77,6 @@ export default function Home() {
     }
   };
 
-  // --- 1. DOMAIN SELECTION SCREEN ---
   if (!isStarted) {
     return (
       <div className="min-h-screen bg-[#FAFAF8] text-stone-800 flex flex-col items-center justify-center p-6">
@@ -102,7 +95,7 @@ export default function Home() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {domains.map((d) => (
-              <div
+              <div 
                 key={d.id}
                 onClick={() => handleStartDomain(d.title)}
                 className="group relative bg-white border border-stone-200 p-6 rounded-xl hover:border-stone-400 hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
@@ -115,11 +108,7 @@ export default function Home() {
                     </div>
                     <span className="text-[10px] uppercase tracking-wider bg-stone-100 text-stone-600 px-2 py-0.5 rounded font-medium">{d.level}</span>
                   </div>
-                  <div className="flex justify-between items-start mb-2">
-                    <h3 className="font-semibold text-lg text-stone-900 group-hover:text-teal-700 transition-colors">{d.title}</h3>
-                    <span className="text-[10px] uppercase tracking-wider bg-stone-100 text-stone-600 px-2 py-0.5 rounded font-medium">{d.level}</span>
-                  </div>
-                  <p className="text-xs text-stone-500">{d.subtitle}</p>
+                  <p className="text-xs text-stone-500 mt-1">{d.subtitle}</p>
                 </div>
               </div>
             ))}
@@ -129,13 +118,10 @@ export default function Home() {
     );
   }
 
-  // --- 2. INTERVIEW WORKSPACE SCREEN ---
   return (
     <div className="flex flex-col h-screen bg-[#FAFAF8] text-stone-800">
-
-      {/* Top Header */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-stone-200 bg-white">
-        <button
+        <button 
           onClick={handleReset}
           className="flex items-center gap-2 text-sm text-stone-500 hover:text-stone-900 transition-colors font-medium"
         >
@@ -155,10 +141,7 @@ export default function Home() {
         </button>
       </header>
 
-      {/* Main Content Layout */}
       <div className="flex-1 flex overflow-hidden p-6 gap-6">
-
-        {/* Chat / Conversation Area */}
         <div className="flex-1 bg-white border border-stone-200 rounded-xl flex flex-col overflow-hidden shadow-sm">
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
             {messages.map((m, idx) => (
@@ -185,7 +168,6 @@ export default function Home() {
           </form>
         </div>
 
-        {/* Right Metric Panel */}
         <div className="w-80 hidden lg:flex flex-col gap-4">
           <div className="bg-white border border-stone-200 p-5 rounded-xl shadow-sm space-y-4">
             <div>
@@ -214,7 +196,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Evaluation Summary Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white p-6 rounded-xl max-w-md w-full space-y-4 shadow-xl">
