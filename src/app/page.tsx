@@ -54,7 +54,7 @@ export default function InterviewerPage() {
 
       if (data.evaluation) {
         const evalData: EvaluationData = data.evaluation;
-        setTotalScore((prev) => Math.min(100, prev + evalData.scoreDelta));
+        setTotalScore((prev) => Math.max(0, Math.min(100, prev + evalData.scoreDelta)));
         setLastAccuracy(evalData.accuracyScore);
         setRecentFeedback(evalData.feedback);
         if (evalData.conceptCovered && !concepts.includes(evalData.conceptCovered)) {

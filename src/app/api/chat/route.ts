@@ -5,7 +5,7 @@ export async function POST(req: Request) {
   try {
     const { messages, topic } = await req.json();
 
-    // 1. If AGENTROUTER_API_KEY is provided in .env.local, use the live API gateway
+    // 1. Live API Gateway via AgentRouter / OpenAI API
     if (process.env.AGENTROUTER_API_KEY) {
       const openai = new OpenAI({
         apiKey: process.env.AGENTROUTER_API_KEY,
@@ -13,20 +13,19 @@ export async function POST(req: Request) {
       });
 
       const systemPrompt = `
-        You are an expert AI Technical Interviewer assessing a candidate for a Senior AI Engineer role.
-        The current domain is: "${topic || 'Enterprise AI Engineering'}".
+        You are an expert AI Technical Interviewer assessing a candidate for a Senior AI Engineer role on: "${topic || 'Enterprise AI Engineering'}".
         
         Guidelines:
-        1. If the user says hello, asks a greeting, or gives a brief non-answer (e.g. "i dont know"), respond politely, acknowledge their response, and ask a simplified or foundational question to keep the assessment going.
-        2. Evaluate technical depth, trade-offs, and accuracy.
+        1. If candidate skips, gives incorrect information, or types low-effort answers (e.g. "another question please", "idk", "asdf"), penalize scoreDelta (-10 to -20) and set accuracyScore low (0 to 30).
+        2. If candidate gives a strong, detailed technical answer, reward scoreDelta (+10 to +20) and accuracyScore (80 to 100).
         3. Keep your response under 3 sentences.
-        4. Respond STRICTLY in valid JSON with this schema:
+        4. Respond STRICTLY in valid JSON:
         {
           "reply": "Your question or response",
-          "scoreDelta": 10,
+          "scoreDelta": -10, // negative integer for poor answers, positive for good answers
           "conceptCovered": "Concept Name",
-          "feedback": "One sentence feedback on candidate performance",
-          "accuracyScore": 75
+          "feedback": "Concise feedback explaining why points were awarded or deducted",
+          "accuracyScore": 20
         }
       `;
 
@@ -43,77 +42,70 @@ export async function POST(req: Request) {
       return NextResponse.json({
         reply: parsed.reply || 'Let us explore system reliability: How do you handle fallback strategies during LLM provider outages?',
         evaluation: {
-          scoreDelta: parsed.scoreDelta ?? 5,
+          scoreDelta: parsed.scoreDelta ?? 0,
           conceptCovered: parsed.conceptCovered || 'System Design',
           feedback: parsed.feedback || 'Response evaluated.',
-          accuracyScore: parsed.accuracyScore ?? 70,
+          accuracyScore: parsed.accuracyScore ?? 50,
         },
       });
     }
 
-    // 2. Dynamic multi-turn state engine when running locally without an active API key
-    const userTurnCount = messages.filter((m: any) => m.role === 'user').length;
+    // 2. Local Fallback Engine with Strict Penalty Rules
     const lastUserMsg = (messages[messages.length - 1]?.content || '').trim().toLowerCase();
 
     let reply = '';
     let scoreDelta = 0;
-    let accuracyScore = 50;
+    let accuracyScore = 0;
     let conceptCovered = 'General Assessment';
     let feedback = '';
 
-    // Greetings or off-topic input
-    if (['hello', 'hi', 'hey', 'greetings', 'test'].includes(lastUserMsg)) {
-      reply = "Hello! Welcome to the technical assessment. Let's start with Retrieval-Augmented Generation (RAG): What chunking strategy do you prefer for structured PDF documents, and why?";
-      scoreDelta = 0;
-      accuracyScore = 60;
-      conceptCovered = 'Interview Readiness';
-      feedback = 'Greeting acknowledged. Setting initial technical scenario.';
-    } 
-    // "I don't know" or uncertain responses
-    else if (lastUserMsg.includes('don\'t know') || lastUserMsg.includes('dont know') || lastUserMsg.includes('no idea') || lastUserMsg.length < 4) {
-      reply = "No problem at all! Let's break it down to basics: Can you describe the primary difference between standard keyword search (BM25) and semantic vector search?";
-      scoreDelta = 2;
-      accuracyScore = 40;
-      conceptCovered = 'Search & Retrieval Basics';
-      feedback = 'Candidate passed on complex topic. Pivot to core foundational concepts.';
-    } 
-    // Domain-specific keyword branching for progressive turns
+    // Penalty Trigger 1: Skipping, asking for another question, or giving non-answers
+    if (
+      lastUserMsg.includes('another question') ||
+      lastUserMsg.includes('next question') ||
+      lastUserMsg.includes('skip') ||
+      lastUserMsg.includes('pass') ||
+      lastUserMsg.includes('dont know') ||
+      lastUserMsg.includes("don't know") ||
+      lastUserMsg.includes('no idea')
+    ) {
+      reply = "Understood. Skipping that topic. Let's pivot: Can you explain how vector similarity search works using Cosine Distance vs Dot Product?";
+      scoreDelta = -10;
+      accuracyScore = 15;
+      conceptCovered = 'Question Skipped';
+      feedback = 'Penalty (-10): Candidate declined or skipped the technical question.';
+    }
+    // Penalty Trigger 2: Short greetings or gibberish input (< 5 characters)
+    else if (['hello', 'hi', 'hey', 'test'].includes(lastUserMsg) || lastUserMsg.length < 5) {
+      reply = "Please provide a detailed technical answer. Let's restart: How do chunking strategies impact document retrieval in RAG architectures?";
+      scoreDelta = -5;
+      accuracyScore = 20;
+      conceptCovered = 'Incomplete Answer';
+      feedback = 'Penalty (-5): Insufficient content provided for technical evaluation.';
+    }
+    // Reward Trigger 1: Valid chunking / parsing response
     else if (lastUserMsg.includes('chunk') || lastUserMsg.includes('split') || lastUserMsg.includes('overlap')) {
-      reply = "Great points on chunking boundaries. Moving deeper into retrieval: How do you choose between cosine similarity, dot product, and Euclidean distance for high-dimensional vector space embeddings?";
-      scoreDelta = 18;
-      accuracyScore = 90;
-      conceptCovered = 'Embedding & Vector Metrics';
-      feedback = 'Demonstrated clear understanding of document parsing & chunking trade-offs.';
-    } 
-    else if (lastUserMsg.includes('vector') || lastUserMsg.includes('embed') || lastUserMsg.includes('cosine') || lastUserMsg.includes('distance')) {
-      reply = "Excellent analysis of vector distance metrics. Next, in large-scale production deployments with tens of millions of vectors, how do you manage memory limits—such as using HNSW indexes vs. quantization techniques like PQ?";
+      reply = "Good answer on chunking strategies. Next: How do you choose between Cosine, Dot Product, and L2 Euclidean distance for vector search?";
+      scoreDelta = 15;
+      accuracyScore = 88;
+      conceptCovered = 'Document Chunking';
+      feedback = 'Reward (+15): Accurate explanation of document splitting and overlap.';
+    }
+    // Reward Trigger 2: Valid vector search / index response
+    else if (lastUserMsg.includes('vector') || lastUserMsg.includes('cosine') || lastUserMsg.includes('hnsw') || lastUserMsg.includes('embed')) {
+      reply = "Excellent analysis of vector indexing. How do you mitigate LLM hallucinations when generating answers from retrieved context?";
       scoreDelta = 20;
-      accuracyScore = 92;
-      conceptCovered = 'Vector DB Indexing & Scaling';
-      feedback = 'Strong grasp of vector space math and indexing mechanics.';
-    } 
-    else if (lastUserMsg.includes('hnsw') || lastUserMsg.includes('index') || lastUserMsg.includes('quantization') || lastUserMsg.includes('memory')) {
-      reply = "Solid technical depth on database scaling. Let us switch to Agent orchestration: How do you implement robust error recovery when an AI Agent calls an external tool API and receives a 500 server error or invalid JSON response?";
-      scoreDelta = 22;
       accuracyScore = 95;
-      conceptCovered = 'Agent Fault Tolerance';
-      feedback = 'Expert knowledge in vector index optimization and production constraints.';
-    } 
-    // Fallback based on turn sequence
+      conceptCovered = 'Vector Indexing';
+      feedback = 'Reward (+20): Strong technical depth on vector math and indexing.';
+    }
+    // Default neutral answer
     else {
-      if (userTurnCount <= 2) {
-        reply = "Thank you for sharing that perspective. To drill down into system architecture: How do you address hallucination risks when grounding LLM responses with retrieved enterprise data?";
-        scoreDelta = 12;
-        accuracyScore = 78;
-        conceptCovered = 'RAG Grounding & Hallucinations';
-        feedback = 'General technical answer provided. Prompting for deeper grounding techniques.';
-      } else {
-        reply = "Understood. Considering model evaluation in production: How do you measure retrieval quality using metrics like Mean Reciprocal Rank (MRR) or Normalized Discounted Cumulative Gain (NDCG)?";
-        scoreDelta = 15;
-        accuracyScore = 84;
-        conceptCovered = 'RAG Evaluation Metrics';
-        feedback = 'Sufficient response provided. Advancing to quantitative evaluation methods.';
-      }
+      reply = "Answer noted. To test architectural depth: How do you handle rate-limiting and timeouts when integrating external AI APIs?";
+      scoreDelta = 5;
+      accuracyScore = 65;
+      conceptCovered = 'System Architecture';
+      feedback = 'Moderate (+5): Answer covers baseline concepts but lacks architectural specifics.';
     }
 
     return NextResponse.json({
@@ -130,10 +122,10 @@ export async function POST(req: Request) {
     return NextResponse.json({
       reply: 'Let us pivot to system reliability: How do you set up fallback mechanisms when primary LLM endpoints timeout?',
       evaluation: {
-        scoreDelta: 5,
-        conceptCovered: 'Resiliency & Fallbacks',
-        feedback: 'System issue handled gracefully.',
-        accuracyScore: 70,
+        scoreDelta: 0,
+        conceptCovered: 'Resiliency',
+        feedback: 'Evaluation fallback active.',
+        accuracyScore: 50,
       },
     });
   }
