@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Bot, User, Send, CheckCircle2, AlertCircle, RefreshCw,
-  FileText, ArrowRight, Award, BarChart3, ChevronDown, ChevronUp,
+  FileText, ArrowRight, ArrowLeft, Award, BarChart3, ChevronDown, ChevronUp,
   Download, Sparkles, SlidersHorizontal, LayoutDashboard, MessageSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -89,8 +89,13 @@ export default function InterviewerDashboard() {
     setMessages([initialMsg]);
   };
 
+  // --- Fully resets session state and returns user to the Domain Selector ---
   const handleReset = () => {
-    localStorage.removeItem('interview_session_v2');
+    // Clear all storage so old states don't reload on refresh
+    localStorage.clear();
+    sessionStorage.clear();
+
+    // Reset UI state to show Domain Selector
     setIsStarted(false);
     setSelectedDomains([]);
     setMessages([]);
@@ -99,6 +104,7 @@ export default function InterviewerDashboard() {
     setLastAccuracy(0);
     setRecentFeedback('Assessment initiated. Awaiting first candidate answer.');
     setEvaluatedBadges([]);
+    setShowReportModal(false);
   };
 
   const handleSend = async (e?: React.FormEvent) => {
@@ -241,6 +247,14 @@ export default function InterviewerDashboard() {
       {/* Header */}
       <header className="bg-white border-b border-stone-200 sticky top-0 z-30 px-4 md:px-8 py-3.5 flex items-center justify-between shadow-xs">
         <div className="flex items-center gap-3">
+          {/* Exit hatch: returns to Domain Selector at any point */}
+          <button
+            onClick={handleReset}
+            className="flex items-center gap-1.5 text-xs font-medium text-stone-500 hover:text-stone-800 transition-colors mr-1 pr-3 border-r border-stone-200"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" /> Back to Domains
+          </button>
+
           <div className="w-9 h-9 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-600 font-bold text-lg">
             <Bot className="w-5 h-5" />
           </div>
@@ -277,7 +291,7 @@ export default function InterviewerDashboard() {
           </button>
 
           <button
-            onClick={() => setShowReportModal(true)}
+            onClick={handleReset}
             className="border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-colors"
           >
             End Assessment
@@ -338,7 +352,7 @@ export default function InterviewerDashboard() {
           totalScore={totalScore}
           evaluations={evaluations}
           domains={selectedDomains}
-          onClose={() => setShowReportModal(false)}
+          onClose={handleReset}
         />
       )}
     </div>
