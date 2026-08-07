@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Sparkles, ArrowLeft, Send, RotateCcw, BarChart3 } from 'lucide-react';
-
+import { Sparkles, ArrowLeft, Send, RotateCcw, BarChart3, Zap, Search, Bot, Settings, Target } from 'lucide-react';
 export default function Home() {
   const [isStarted, setIsStarted] = useState(false);
   const [selectedDomain, setSelectedDomain] = useState('');
@@ -14,12 +13,15 @@ export default function Home() {
   const [lastAccuracy, setLastAccuracy] = useState(88);
 
   // Available domains list matching your clean UI style
+
+
+  // Inside your component:
   const domains = [
-    { id: 'agent-orchestration', title: 'Agent Orchestration', subtitle: 'Tool calling, multi-agent flows & memory recovery', level: 'Intermediate' },
-    { id: 'vector-search', title: 'Vector Search', subtitle: 'Embeddings, hybrid search, reranking & distance metrics', level: 'Advanced' },
-    { id: 'enterprise-rag', title: 'Enterprise RAG', subtitle: 'Chunking, hybrid search, reasoning & control windows', level: 'Intermediate' },
-    { id: 'system-design', title: 'System Design', subtitle: 'Rate limiting, caching, latency & LLM resiliency', level: 'Expert' },
-    { id: 'fine-tuning', title: 'Fine-Tuning & LLMOps', subtitle: 'LoRA, evaluation metrics, guardrails & tracking', level: 'Advanced' },
+    { id: 'enterprise-rag', title: 'Enterprise RAG', subtitle: 'Chunking, hybrid search, reasoning & context windows', level: 'Intermediate', icon: <Zap className="w-5 h-5 text-amber-500" /> },
+    { id: 'vector-search', title: 'Vector Search', subtitle: 'Embeddings, HNSW, quantization & distance metrics', level: 'Advanced', icon: <Search className="w-5 h-5 text-blue-500" /> },
+    { id: 'agent-orchestration', title: 'Agent Orchestration', subtitle: 'Tool calling, multi-agent flows & memory recovery', level: 'Advanced', icon: <Bot className="w-5 h-5 text-purple-500" /> },
+    { id: 'system-design', title: 'System Design', subtitle: 'Rate limiting, caching, latency & LLM resiliency', level: 'Expert', icon: <Settings className="w-5 h-5 text-emerald-500" /> },
+    { id: 'fine-tuning', title: 'Fine-Tuning & LLMOps', subtitle: 'LoRA, evaluation metrics, guardrails & tracking', level: 'Advanced', icon: <Target className="w-5 h-5 text-rose-500" /> },
   ];
 
   // Start Interview & Fetch Dynamic First Question based on selected domain
@@ -100,12 +102,19 @@ export default function Home() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {domains.map((d) => (
-              <div 
+              <div
                 key={d.id}
                 onClick={() => handleStartDomain(d.title)}
                 className="group relative bg-white border border-stone-200 p-6 rounded-xl hover:border-stone-400 hover:shadow-md transition-all cursor-pointer flex flex-col justify-between"
               >
                 <div>
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-stone-50 rounded-lg border border-stone-100">{d.icon}</div>
+                      <h3 className="font-semibold text-lg text-stone-900 group-hover:text-teal-700 transition-colors">{d.title}</h3>
+                    </div>
+                    <span className="text-[10px] uppercase tracking-wider bg-stone-100 text-stone-600 px-2 py-0.5 rounded font-medium">{d.level}</span>
+                  </div>
                   <div className="flex justify-between items-start mb-2">
                     <h3 className="font-semibold text-lg text-stone-900 group-hover:text-teal-700 transition-colors">{d.title}</h3>
                     <span className="text-[10px] uppercase tracking-wider bg-stone-100 text-stone-600 px-2 py-0.5 rounded font-medium">{d.level}</span>
@@ -123,10 +132,10 @@ export default function Home() {
   // --- 2. INTERVIEW WORKSPACE SCREEN ---
   return (
     <div className="flex flex-col h-screen bg-[#FAFAF8] text-stone-800">
-      
+
       {/* Top Header */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-stone-200 bg-white">
-        <button 
+        <button
           onClick={handleReset}
           className="flex items-center gap-2 text-sm text-stone-500 hover:text-stone-900 transition-colors font-medium"
         >
@@ -148,7 +157,7 @@ export default function Home() {
 
       {/* Main Content Layout */}
       <div className="flex-1 flex overflow-hidden p-6 gap-6">
-        
+
         {/* Chat / Conversation Area */}
         <div className="flex-1 bg-white border border-stone-200 rounded-xl flex flex-col overflow-hidden shadow-sm">
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
