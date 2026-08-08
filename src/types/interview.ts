@@ -1,19 +1,13 @@
-export type Domain =
-  | "Frontend Development"
-  | "Backend Development"
-  | "Data Structures & Algorithms"
-  | "System Design"
-  | "DevOps & Cloud"
-  | "Machine Learning";
-
-export const DOMAINS: Domain[] = [
+export const DOMAINS = [
   "Frontend Development",
   "Backend Development",
   "Data Structures & Algorithms",
   "System Design",
   "DevOps & Cloud",
   "Machine Learning",
-];
+] as const;
+
+export type Domain = (typeof DOMAINS)[number];
 
 export type MessageRole = "interviewer" | "candidate" | "system";
 
@@ -24,38 +18,29 @@ export interface ChatMessage {
   timestamp: number;
 }
 
-export type CategoryId = "correctness" | "clarity" | "depth" | "communication";
-
-export interface CategoryScores {
-  correctness: number;
-  clarity: number;
-  depth: number;
-  communication: number;
-}
+export type ScoreCategoryId = "correctness" | "clarity" | "depth" | "communication";
 
 export interface ScoreCategory {
-  id: CategoryId;
+  id: ScoreCategoryId;
   label: string;
-  score: number; // 0-100, running score
-  delta: number; // change from previous evaluation
-}
-
-export interface EvaluationResult {
-  accuracy: number; // 0-100, accuracy for this specific answer
-  delta: number; // change vs previous overall score
-  feedback: string;
-  strengths: string[];
-  improvements: string[];
-  nextQuestion: string;
-  isFallback: boolean;
-  categoryScores: CategoryScores;
+  score: number;
+  delta: number;
 }
 
 export interface Scorecard {
   overall: number;
   categories: ScoreCategory[];
   questionsAsked: number;
-  history: number[]; // overall score trend, one entry per turn
+  history: number[];
+}
+
+export interface EvaluationResult {
+  categoryScores: Record<ScoreCategoryId, number>;
+  strengths: string[];
+  improvements: string[];
+  feedback: string;
+  nextQuestion: string;
+  isFallback: boolean;
 }
 
 export type Recommendation = "Strong Hire" | "Hire" | "Lean Hire" | "No Hire";
