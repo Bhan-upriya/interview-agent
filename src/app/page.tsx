@@ -126,7 +126,7 @@ export default function InterviewerDashboard() {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/interview', {
+      const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -148,7 +148,8 @@ export default function InterviewerDashboard() {
 
       if (data.evaluation) {
         const ev = data.evaluation;
-        setTotalScore((prev) => Math.max(0, Math.min(100, prev + (ev.scoreDelta ?? 0))));
+        const newTotalScore = Math.max(0, Math.min(100, totalScore + (ev.scoreDelta ?? 0)));
+        setTotalScore(newTotalScore);
         setLastAccuracy(ev.accuracyScore ?? 50);
         setRecentFeedback(ev.feedback || 'Response analyzed.');
 
@@ -167,7 +168,14 @@ export default function InterviewerDashboard() {
           strengths: ev.accuracyScore >= 70 ? ['Clear explanation', 'Valid architecture trade-offs'] : ['Attempted response'],
           gaps: ev.accuracyScore < 70 ? ['Missing operational detail', 'Skipped failure modes'] : []
         };
-        setEvaluations(prev => [...prev, newEval]);
+        
+        const updatedEvaluations = [...evaluations, newEval];
+        setEvaluations(updatedEvaluations);
+
+        // Optional auto-trigger modal after 4 or more evaluation turns
+        if (updatedEvaluations.length >= 4) {
+          setTimeout(() => setShowReportModal(true), 1000);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -290,6 +298,14 @@ export default function InterviewerDashboard() {
             <BarChart3 className="w-4 h-4" />
           </button>
 
+          {/* Trigger Final Evaluation Modal manually */}
+          <button
+            onClick={() => setShowReportModal(true)}
+            className="border border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-800 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-colors hidden sm:block"
+          >
+            View Report
+          </button>
+
           <button
             onClick={handleReset}
             className="border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-colors"
@@ -342,6 +358,7 @@ export default function InterviewerDashboard() {
             recentFeedback={recentFeedback}
             evaluatedBadges={evaluatedBadges}
             handleReset={handleReset}
+            onOpenReport={() => setShowReportModal(true)}
           />
         </div>
       </main>
@@ -352,7 +369,8 @@ export default function InterviewerDashboard() {
           totalScore={totalScore}
           evaluations={evaluations}
           domains={selectedDomains}
-          onClose={handleReset}
+          onClose={() => setShowReportModal(false)}
+          onReset={handleReset}
         />
       )}
     </div>
@@ -473,13 +491,15 @@ function ScorecardPanel({
   lastAccuracy,
   recentFeedback,
   evaluatedBadges,
-  handleReset
+  handleReset,
+  onOpenReport
 }: {
   totalScore: number;
   lastAccuracy: number;
   recentFeedback: string;
   evaluatedBadges: string[];
   handleReset: () => void;
+  onOpenReport: () => void;
 }) {
   return (
     <div className="sticky top-20 space-y-4">
@@ -499,6 +519,12 @@ function ScorecardPanel({
             style={{ width: `${totalScore}%` }}
           />
         </div>
+        <button
+          onClick={onOpenReport}
+          className="w-full mt-2 py-2 px-3 bg-teal-50 hover:bg-teal-100 text-teal-700 text-xs font-medium rounded-xl border border-teal-200 transition-colors flex items-center justify-center gap-1.5"
+        >
+          <FileText className="w-3.5 h-3.5" /> View Final Hiring Report
+        </button>
       </div>
 
       {/* Card 2: Radial Accuracy Gauge */}
@@ -658,12 +684,14 @@ function AssessmentReportModal({
   totalScore,
   evaluations,
   domains,
-  onClose
+  onClose,
+  onReset
 }: {
   totalScore: number;
   evaluations: TurnEvaluation[];
   domains: AssessmentDomain[];
   onClose: () => void;
+  onReset: () => void;
 }) {
   const recommendation = totalScore >= 75 ? 'Strong Hire' : totalScore >= 55 ? 'Follow-up Needed' : 'Needs Growth';
   const badgeColor = totalScore >= 75
@@ -733,19 +761,28 @@ function AssessmentReportModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-stone-100 pt-4">
+        <div className="flex items-center justify-between border-t border-stone-100 pt-4">
           <button
-            onClick={() => window.print()}
-            className="px-4 py-2 rounded-xl border border-stone-200 text-stone-600 text-xs font-medium hover:bg-stone-50 flex items-center gap-1.5"
+            onClick={onReset}
+            className="text-xs text-rose-600 hover:text-rose-700 font-medium flex items-center gap-1"
           >
-            <Download className="w-3.5 h-3.5" /> Export PDF
+            <RefreshCw className="w-3.5 h-3.5" /> Reset All Data
           </button>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-stone-800 text-white text-xs font-medium hover:bg-stone-900"
-          >
-            Close Report
-          </button>
+          
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => window.print()}
+              className="px-4 py-2 rounded-xl border border-stone-200 text-stone-600 text-xs font-medium hover:bg-stone-50 flex items-center gap-1.5"
+            >
+              <Download className="w-3.5 h-3.5" /> Export PDF
+            </button>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl bg-stone-800 text-white text-xs font-medium hover:bg-stone-900"
+            >
+              Close Report
+            </button>
+          </div>
         </div>
       </motion.div>
     </div>
