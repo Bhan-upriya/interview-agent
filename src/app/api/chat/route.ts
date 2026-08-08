@@ -7,86 +7,56 @@ const QUESTION_BANKS: Record<Domain, string[]> = {
     "How does React's reconciliation algorithm (Fiber) work under the hood?",
     "Can you explain how you would optimize a web application suffering from layout thrashing and slow Core Web Vitals?",
     "What are the trade-offs between Server-Side Rendering (SSR), Client-Side Rendering (CSR), and Incremental Static Regeneration (ISR)?",
-    "How do you manage complex global state in a large-scale frontend application without running into performance bottlenecks?",
-    "Can you explain how CSS Grid and Flexbox differ in layout calculation, and when you should choose one over the other?",
-    "How do service workers work, and how would you implement an offline-first progressive web app (PWA)?",
-    "What security vulnerabilities (like XSS or CSRF) affect modern Single Page Applications, and how do you prevent them?",
-    "How do you approach writing automated end-to-end (E2E) tests for complex user workflows using tools like Playwright or Cypress?",
-    "Explain event bubbling, capturing, and delegation in the DOM. Why is delegation useful for performance?"
+    "How do you manage complex global state in a large-scale frontend application without running into performance bottlenecks?"
   ],
   "Backend Development": [
     "How would you design a scalable REST API for a high-traffic to-do list application?",
     "Can you explain how database indexing works (e.g., B-Trees) and when you should avoid adding an index?",
     "How do you handle database migrations safely in a zero-downtime production environment?",
     "What is the difference between optimistic and pessimistic locking, and when would you use each?",
-    "How do you handle performance bottlenecks or debugging in high-load microservices architectures?",
-    "What are the core differences between SQL and NoSQL databases, and how do you choose the right data store for a project?",
-    "How do JWT (JSON Web Tokens) work, and what are the security trade-offs of storing them in LocalStorage versus HttpOnly cookies?",
-    "Explain how database connection pooling works and why it is critical for preventing server crashes under load.",
-    "How would you implement rate limiting and request throttling on a public-facing API gateway?",
-    "What is event-driven architecture, and what are the trade-offs of using message brokers like RabbitMQ versus Kafka?"
+    "How do you handle performance bottlenecks or debugging in high-load microservices architectures?"
   ],
   "Data Structures & Algorithms": [
     "What is the difference between a stack and a queue, and what are their underlying memory implications?",
     "How would you find the shortest path in a weighted graph with non-negative edge weights? Explain the time complexity.",
     "Can you explain how hash maps handle collisions internally (e.g., chaining vs open addressing) and how worst-case time complexity is managed?",
     "What is dynamic programming, and how do you decide whether to use a top-down memoization or bottom-up tabulation approach?",
-    "How would you detect a cycle in a directed graph efficiently using DFS or Kahn's algorithm?",
-    "Explain the time and space complexity differences between QuickSort, MergeSort, and HeapSort.",
-    "How does a balanced Binary Search Tree (like an AVL tree or Red-Black tree) maintain logarithmic search time during insertions and deletions?",
-    "Can you explain the Sliding Window pattern and give an example of when you would use it to optimize an algorithm?",
-    "What is a Trie data structure, and why is it exceptionally efficient for prefix-matching and autocomplete features?",
-    "How would you find the lowest common ancestor (LCA) of two nodes in a Binary Search Tree versus a general binary tree?"
+    "How would you detect a cycle in a directed graph efficiently using DFS or Kahn's algorithm?"
   ],
   "System Design": [
     "How would you approach designing a global, scalable real-time notification system?",
     "What strategies would you use to handle a sudden 100x surge in traffic for an e-commerce checkout service?",
     "Explain how consistent hashing works and why it is crucial for distributed caching systems like Redis or Memcached.",
     "What are the trade-offs between SQL (relational) and NoSQL databases when designing a system with massive write throughput?",
-    "How do you implement rate limiting in a distributed API gateway?",
-    "What is the CAP theorem, and how do distributed databases choose between consistency and availability during partition events?",
-    "How would you design a URL shortening service like Bitly to handle billions of reads and writes?",
-    "Explain the differences between horizontal and vertical scaling, along with the bottlenecks associated with each.",
-    "How do content delivery networks (CDNs) work, and what caching strategies would you employ for dynamic versus static assets?",
-    "How would you design a distributed log monitoring and analytics aggregation platform like ELK or Splunk?"
+    "How do you implement rate limiting in a distributed API gateway?"
   ],
   "DevOps & Cloud": [
     "What is the fundamental architectural difference between a Linux container and a traditional virtual machine?",
     "How do you design a secure, zero-downtime CI/CD pipeline using GitHub Actions or Kubernetes?",
     "Can you explain how infrastructure as code (IaC) tools like Terraform manage state files and handle race conditions in team environments?",
     "How do you troubleshoot a cascading failure in a cloud-native microservices environment?",
-    "What strategies do you use for secure secret management across ephemeral cloud environments (e.g., HashiCorp Vault or AWS Secrets Manager)?",
-    "How do Kubernetes pods, services, and ingress controllers work together to route traffic inside a cluster?",
-    "What is observability in cloud systems, and how do metrics, logs, and distributed traces complement each other?",
-    "How do you implement blue-green deployments versus canary releases to minimize deployment risk?",
-    "What are the security best practices for hardening cloud storage buckets and preventing public data exposure?",
-    "How do you manage auto-scaling policies efficiently in response to unpredictable traffic spikes?"
+    "What strategies do you use for secure secret management across ephemeral cloud environments?"
   ],
   "Machine Learning": [
     "What is the core difference between supervised, unsupervised, and reinforcement learning paradigms?",
     "How do you diagnose and mitigate overfitting in a deep neural network?",
     "Explain the vanishing gradient problem and how architectures like ResNets or activation functions like ReLU resolve it.",
     "What evaluation metrics would you choose for an imbalanced classification dataset (e.g., fraud detection), and why?",
-    "How do you handle missing or noisy data during the preprocessing pipeline before training a model?",
-    "What is the bias-variance tradeoff, and how do techniques like bagging and boosting address it?",
-    "How do attention mechanisms and Transformers work compared to traditional recurrent neural networks (RNNs/LSTMs)?",
-    "Explain the concept of regularization (L1 vs L2) and how it affects model weights during training.",
-    "How would you approach deploying a large language model or computer vision model to production with low inference latency?",
-    "What is cross-validation, and why is standard k-fold cross-validation critical for robust model evaluation?"
+    "How do you handle missing or noisy data during the preprocessing pipeline before training a model?"
   ]
 };
 
 export async function POST(req: Request) {
   let domainParam: Domain = "Backend Development";
   let previousQuestions: string[] = [];
+  let candidateAnswer = "";
 
   try {
     const body = (await req.json()) as ChatRequestBody;
     const { domain, question, answer, history } = body;
     
-    if (domain) {
-      domainParam = domain;
-    }
+    if (domain) domainParam = domain;
+    if (answer) candidateAnswer = answer;
 
     if (!domain || !question || !answer) {
       return NextResponse.json(
@@ -124,11 +94,11 @@ The candidate responded with:
 "${answer}"
 
 Instructions:
-1. Evaluate the candidate's answer objectively. 
-   - If the answer is comprehensive, accurate, and well-reasoned, award high scores (70 to 100) across correctness, clarity, depth, and communication.
-   - If the answer is correct or partially correct, award moderate to high scores (50 to 85).
-   - If the answer is incorrect, vague, short, or says "I don't know", give low scores (0 to 30).
-2. Select the next question from the MASTER QUESTION POOL above that has NOT been asked yet. If all questions from the pool have been exhausted, invent a relevant new advanced follow-up question within "${domain}".
+1. Evaluate the candidate's answer strictly and objectively:
+   - If the answer is incorrect, negative (e.g., "no", "I don't know"), irrelevant, or extremely brief, award very low scores (0 to 20).
+   - If the answer is partially correct, award moderate scores (40 to 60).
+   - If the answer is comprehensive and accurate, award high scores (75 to 100).
+2. Select the next question from the MASTER QUESTION POOL above that has NOT been asked yet. If all questions have been exhausted, invent a relevant follow-up question within "${domain}".
 
 Return your response strictly as a valid JSON object matching this exact structure without any markdown backticks or extra text:
 {
@@ -163,7 +133,7 @@ Return your response strictly as a valid JSON object matching this exact structu
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           responseMimeType: "application/json",
-          temperature: 0.3,
+          temperature: 0.2,
         },
       }),
     });
@@ -189,14 +159,28 @@ Return your response strictly as a valid JSON object matching this exact structu
     const unaskedQuestions = domainBank.filter((q) => !previousQuestions.includes(q));
     const nextFallbackQuestion = unaskedQuestions.length > 0 
       ? unaskedQuestions[0] 
-      : `Can you discuss another advanced concept in ${domainParam}?`;
+      : `Can you discuss another concept in ${domainParam}?`;
 
-    // Dynamic fallback scoring based on answer length so correct answers don't get stuck at 15
+    // Dynamic fallback checking: if the answer is "no" or short, give low scores to reflect incorrectness
+    const isNegativeOrShort = 
+      candidateAnswer.trim().toLowerCase() === "no" || 
+      candidateAnswer.trim().toLowerCase() === "i don't know" || 
+      candidateAnswer.trim().length < 8;
+
+    const scoreValue = isNegativeOrShort ? 10 : 75;
+
     const emergencyEvaluation: EvaluationResult = {
-      categoryScores: { correctness: 75, clarity: 75, depth: 70, communication: 75 },
-      strengths: ["Demonstrated solid technical understanding."],
-      improvements: ["Continue providing clear architectural details."],
-      feedback: "Good technical explanation. Let's proceed to the next question.",
+      categoryScores: { 
+        correctness: scoreValue, 
+        clarity: scoreValue, 
+        depth: scoreValue, 
+        communication: scoreValue 
+      },
+      strengths: isNegativeOrShort ? [] : ["Demonstrated technical understanding."],
+      improvements: isNegativeOrShort ? ["Provide a detailed, complete technical explanation instead of a refusal or short response."] : ["Expand further on technical specifics."],
+      feedback: isNegativeOrShort 
+        ? "That response was insufficient or incorrect. Please provide detailed technical answers." 
+        : "Response noted. Let's proceed to the next question.",
       nextQuestion: nextFallbackQuestion,
       isFallback: true,
     };
