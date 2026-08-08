@@ -1,800 +1,668 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
-  Bot, User, Send, CheckCircle2, AlertCircle, RefreshCw,
-  FileText, ArrowRight, ArrowLeft, Award, BarChart3, ChevronDown, ChevronUp,
-  Download, Sparkles, MessageSquare
-} from 'lucide-react';
-import { motion } from 'framer-motion';
-import { Message, TurnEvaluation, AssessmentDomain } from '@/types/interview';
+  Bot,
+  User,
+  Send,
+  Loader2,
+  FileText,
+  X,
+  CheckCircle2,
+  AlertTriangle,
+  Sparkles,
+  RotateCcw,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  ClipboardList,
+} from "lucide-react";
 
-// --- Domain Configurations ---
-const DOMAINS: { id: AssessmentDomain; title: string; desc: string; icon: string; difficulty: string }[] = [
-  { id: 'Enterprise RAG', title: 'Enterprise RAG', desc: 'Chunking, hybrid search, reranking & context windows', icon: '⚡', difficulty: 'Intermediate' },
-  { id: 'Vector Search', title: 'Vector Search', desc: 'Embeddings, HNSW, quantization & distance metrics', icon: '🔍', difficulty: 'Advanced' },
-  { id: 'Agent Orchestration', title: 'Agent Orchestration', desc: 'Tool calling, multi-agent flows & memory recovery', icon: '🤖', difficulty: 'Advanced' },
-  { id: 'System Design', title: 'System Design', desc: 'Rate limiting, caching, latency & LLM resiliency', icon: '⚙️', difficulty: 'Expert' },
-  { id: 'Fine-Tuning & LLMOps', title: 'Fine-Tuning & LLMOps', desc: 'LoRA, evaluation metrics, guardrails & tracking', icon: '🎯', difficulty: 'Advanced' },
+import {
+  DOMAINS,
+  type Domain,
+  type ChatMessage,
+  type Scorecard,
+  type ScoreCategory,
+  type EvaluationResult,
+  type HiringReport,
+  type Recommendation,
+  type ChatResponseBody,
+  type ChatErrorBody,
+} from "@/types/interview";
+
+// ---------------------------------------------------------------------------
+// Static config
+// ---------------------------------------------------------------------------
+
+const CATEGORY_LABELS: Record<ScoreCategory["id"], string> = {
+  correctness: "Correctness",
+  clarity: "Clarity",
+  depth: "Depth",
+  communication: "Communication",
+};
+
+const CATEGORY_ORDER: ScoreCategory["id"][] = [
+  "correctness",
+  "clarity",
+  "depth",
+  "communication",
 ];
 
-export default function InterviewerDashboard() {
-  // --- States ---
-  const [selectedDomains, setSelectedDomains] = useState<AssessmentDomain[]>([]);
-  const [isStarted, setIsStarted] = useState(false);
-  const [activeTab, setActiveTab] = useState<'interview' | 'transcript'>('interview');
+const STARTER_QUESTIONS: Record<Domain, string> = {
+  "Frontend Development":
+    "Let's start simple: what happens in the browser between typing a URL and seeing the page render?",
+  "Backend Development":
+    "To start, how would you design a simple REST API for a to-do list application?",
+  "Data Structures & Algorithms":
+    "Let's begin: can you explain the difference between a stack and a queue, and give a real use case for each?",
+  "System Design":
+    "For our first question: how would you approach designing a scalable notification system?",
+  "DevOps & Cloud":
+    "To start: what is the difference between a container and a virtual machine?",
+  "Machine Learning":
+    "Let's start with the basics: what's the difference between supervised and unsupervised learning?",
+};
 
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [evaluations, setEvaluations] = useState<TurnEvaluation[]>([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
+const EMA_WEIGHT = 0.4; // weight given to the newest evaluation when blending scores
 
-  const [totalScore, setTotalScore] = useState(0);
-  const [lastAccuracy, setLastAccuracy] = useState(0);
-  const [recentFeedback, setRecentFeedback] = useState('Assessment initiated. Awaiting first candidate answer.');
-  const [evaluatedBadges, setEvaluatedBadges] = useState<string[]>([]);
+function generateId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
-  const [showReportModal, setShowReportModal] = useState(false);
-  const [showMobileScorecard, setShowMobileScorecard] = useState(false);
+function clamp(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
 
-  // --- LocalStorage Persistence ---
-  useEffect(() => {
-    const saved = localStorage.getItem('interview_session_v4');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.isStarted) {
-          setIsStarted(parsed.isStarted);
-          setSelectedDomains(parsed.selectedDomains || []);
-          setMessages(parsed.messages || []);
-          setEvaluations(parsed.evaluations || []);
-          setTotalScore(parsed.totalScore ?? 0);
-          setLastAccuracy(parsed.lastAccuracy ?? 0);
-          setRecentFeedback(parsed.recentFeedback || 'Assessment initiated.');
-          setEvaluatedBadges(parsed.evaluatedBadges || []);
-        }
-      } catch (e) {
-        console.error('Failed to load session:', e);
-      }
-    }
-  }, []);
+function emptyScorecard(): Scorecard {
+  return {
+    overall: 0,
+    categories: CATEGORY_ORDER.map((id) => ({
+      id,
+      label: CATEGORY_LABELS[id],
+      score: 0,
+      delta: 0,
+    })),
+    questionsAsked: 0,
+    history: [],
+  };
+}
 
-  useEffect(() => {
-    if (isStarted) {
-      localStorage.setItem('interview_session_v4', JSON.stringify({
-        isStarted, selectedDomains, messages, evaluations, totalScore, lastAccuracy, recentFeedback, evaluatedBadges
-      }));
-    }
-  }, [isStarted, selectedDomains, messages, evaluations, totalScore, lastAccuracy, recentFeedback, evaluatedBadges]);
+/**
+ * Blends the new evaluation into the running scorecard using an
+ * exponential moving average, so a single weak/strong answer doesn't
+ * swing the overall score too drastically.
+ */
+function updateScorecard(prev: Scorecard, evaluation: EvaluationResult): Scorecard {
+  const isFirst = prev.questionsAsked === 0;
 
-  const handleStart = () => {
-    if (selectedDomains.length === 0) return;
-    setIsStarted(true);
-
-    setTotalScore(0);
-    setLastAccuracy(0);
-    setRecentFeedback('Assessment initiated. Awaiting first candidate answer.');
-    setEvaluatedBadges([]);
-
-    const primaryDomain = selectedDomains[0];
-    let starterQuestion = `Let's start with ${primaryDomain}: How do you approach the core architectural design and failure boundaries for this domain?`;
-    
-    if (primaryDomain === 'Enterprise RAG') {
-      starterQuestion = `Let's start with Enterprise RAG: How do you choose the right chunking strategy and hybrid search parameters for structured technical documents?`;
-    } else if (primaryDomain === 'Vector Search') {
-      starterQuestion = `Let's start with Vector Search: How do you balance recall and query latency when configuring HNSW index parameters and vector quantization?`;
-    } else if (primaryDomain === 'Agent Orchestration') {
-      starterQuestion = `Let's start with Agent Orchestration: How do you handle tool-calling error recovery and infinite loops in multi-agent workflows?`;
-    } else if (primaryDomain === 'System Design') {
-      starterQuestion = `Let's start with System Design: How do you design rate-limiting, token-bucket budgeting, and fallback pathways when primary LLM endpoints degrade?`;
-    } else if (primaryDomain === 'Fine-Tuning & LLMOps') {
-      starterQuestion = `Let's start with Fine-Tuning & LLMOps: When would you choose QLoRA over full parameter fine-tuning, and how do you track evaluation degradation?`;
-    }
-
-    const initialMsg: Message = {
-      id: '1',
-      role: 'assistant',
-      content: starterQuestion,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      turnNumber: 1
+  const categories: ScoreCategory[] = CATEGORY_ORDER.map((id) => {
+    const prevCategory = prev.categories.find((c) => c.id === id);
+    const prevScore = prevCategory?.score ?? 0;
+    const incoming = clamp(evaluation.categoryScores[id]);
+    const newScore = isFirst ? incoming : clamp(prevScore * (1 - EMA_WEIGHT) + incoming * EMA_WEIGHT);
+    return {
+      id,
+      label: CATEGORY_LABELS[id],
+      score: newScore,
+      delta: newScore - prevScore,
     };
-    setMessages([initialMsg]);
+  });
+
+  const overall = clamp(
+    categories.reduce((sum, c) => sum + c.score, 0) / categories.length
+  );
+
+  return {
+    overall,
+    categories,
+    questionsAsked: prev.questionsAsked + 1,
+    history: [...prev.history, overall],
+  };
+}
+
+function recommendationFor(overall: number): Recommendation {
+  if (overall >= 80) return "Strong Hire";
+  if (overall >= 60) return "Hire";
+  if (overall >= 40) return "Lean Hire";
+  return "No Hire";
+}
+
+function buildHiringReport(
+  domain: Domain,
+  scorecard: Scorecard,
+  messages: ChatMessage[],
+  aggregatedStrengths: string[],
+  aggregatedImprovements: string[]
+): HiringReport {
+  const uniqueStrengths = Array.from(new Set(aggregatedStrengths)).slice(0, 5);
+  const uniqueImprovements = Array.from(new Set(aggregatedImprovements)).slice(0, 5);
+
+  const recommendation = recommendationFor(scorecard.overall);
+
+  const summary =
+    scorecard.questionsAsked === 0
+      ? "No questions were answered during this session, so no meaningful assessment could be generated."
+      : `Across ${scorecard.questionsAsked} question${
+          scorecard.questionsAsked === 1 ? "" : "s"
+        } in ${domain}, the candidate achieved an overall score of ${scorecard.overall}/100. ` +
+        `This places them in the "${recommendation}" range based on this interview alone.`;
+
+  return {
+    domain,
+    overallScore: scorecard.overall,
+    recommendation,
+    summary,
+    strengths: uniqueStrengths.length > 0 ? uniqueStrengths : ["No standout strengths recorded."],
+    weaknesses:
+      uniqueImprovements.length > 0 ? uniqueImprovements : ["No specific weaknesses recorded."],
+    categoryBreakdown: scorecard.categories,
+    transcriptLength: messages.length,
+    questionsAsked: scorecard.questionsAsked,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Small presentational components
+// ---------------------------------------------------------------------------
+
+function DeltaBadge({ delta }: { delta: number }) {
+  if (Math.abs(delta) < 1) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+        <Minus className="h-3 w-3" />
+        0
+      </span>
+    );
+  }
+  const positive = delta > 0;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-xs font-medium ${
+        positive ? "text-emerald-400" : "text-rose-400"
+      }`}
+    >
+      {positive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+      {positive ? "+" : ""}
+      {Math.round(delta)}
+    </span>
+  );
+}
+
+function ScoreBar({ category }: { category: ScoreCategory }) {
+  return (
+    <div className="mb-3">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-xs font-medium text-slate-300">{category.label}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-400">{category.score}</span>
+          <DeltaBadge delta={category.delta} />
+        </div>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+        <motion.div
+          className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500"
+          initial={{ width: 0 }}
+          animate={{ width: `${category.score}%` }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function DomainSelector({ onSelect }: { onSelect: (domain: Domain) => void }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 px-4">
+      <div className="w-full max-w-2xl text-center">
+        <div className="mb-3 flex items-center justify-center gap-2">
+          <Sparkles className="h-6 w-6 text-indigo-400" />
+          <h1 className="text-2xl font-semibold text-white">AI Technical Interviewer</h1>
+        </div>
+        <p className="mb-8 text-sm text-slate-400">
+          Pick a domain to begin a live, adaptive technical interview with real-time scoring.
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {DOMAINS.map((domain) => (
+            <button
+              key={domain}
+              onClick={() => onSelect(domain)}
+              className="rounded-xl border border-slate-800 bg-slate-900 p-4 text-left transition hover:border-indigo-500 hover:bg-slate-800"
+            >
+              <span className="text-sm font-medium text-white">{domain}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HiringReportModal({
+  report,
+  onClose,
+  onRestart,
+}: {
+  report: HiringReport;
+  onClose: () => void;
+  onRestart: () => void;
+}) {
+  const recommendationColor: Record<Recommendation, string> = {
+    "Strong Hire": "text-emerald-400 border-emerald-500/40 bg-emerald-500/10",
+    Hire: "text-teal-400 border-teal-500/40 bg-teal-500/10",
+    "Lean Hire": "text-amber-400 border-amber-500/40 bg-amber-500/10",
+    "No Hire": "text-rose-400 border-rose-500/40 bg-rose-500/10",
   };
 
-  const handleReset = () => {
-    localStorage.clear();
-    sessionStorage.clear();
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl"
+      >
+        <div className="mb-4 flex items-start justify-between">
+          <div>
+            <div className="mb-1 flex items-center gap-2">
+              <FileText className="h-5 w-5 text-indigo-400" />
+              <h2 className="text-lg font-semibold text-white">Hiring Report</h2>
+            </div>
+            <p className="text-xs text-slate-400">{report.domain}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white"
+            aria-label="Close report"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
 
-    setIsStarted(false);
-    setSelectedDomains([]);
+        <div
+          className={`mb-4 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm font-medium ${recommendationColor[report.recommendation]}`}
+        >
+          <CheckCircle2 className="h-4 w-4" />
+          {report.recommendation} · {report.overallScore}/100
+        </div>
+
+        <p className="mb-5 text-sm leading-relaxed text-slate-300">{report.summary}</p>
+
+        <div className="mb-5">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Category Breakdown
+          </h3>
+          {report.categoryBreakdown.map((cat) => (
+            <ScoreBar key={cat.id} category={cat} />
+          ))}
+        </div>
+
+        <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <h3 className="mb-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-emerald-400">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Strengths
+            </h3>
+            <ul className="space-y-1 text-sm text-slate-300">
+              {report.strengths.map((s, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="text-emerald-500">•</span> {s}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <h3 className="mb-2 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-amber-400">
+              <AlertTriangle className="h-3.5 w-3.5" /> Areas to Improve
+            </h3>
+            <ul className="space-y-1 text-sm text-slate-300">
+              {report.weaknesses.map((w, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="text-amber-500">•</span> {w}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        <div className="flex gap-2 border-t border-slate-800 pt-4 text-xs text-slate-500">
+          <span>{report.questionsAsked} questions asked</span>
+          <span>·</span>
+          <span>{report.transcriptLength} messages</span>
+        </div>
+
+        <button
+          onClick={onRestart}
+          className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2.5 text-sm font-medium text-white transition hover:bg-indigo-500"
+        >
+          <RotateCcw className="h-4 w-4" />
+          Start a New Interview
+        </button>
+      </motion.div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
+export default function InterviewDashboard() {
+  const [domain, setDomain] = useState<Domain | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [currentQuestion, setCurrentQuestion] = useState<string>("");
+  const [inputValue, setInputValue] = useState<string>("");
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [scorecard, setScorecard] = useState<Scorecard>(emptyScorecard());
+  const [showTranscript, setShowTranscript] = useState<boolean>(false);
+  const [showReport, setShowReport] = useState<boolean>(false);
+  const [report, setReport] = useState<HiringReport | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
+  const [lastFallback, setLastFallback] = useState<boolean>(false);
+
+  const strengthsRef = useRef<string[]>([]);
+  const improvementsRef = useRef<string[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  function handleSelectDomain(selected: Domain) {
+    const starter = STARTER_QUESTIONS[selected];
+    setDomain(selected);
+    setScorecard(emptyScorecard());
+    strengthsRef.current = [];
+    improvementsRef.current = [];
+    setCurrentQuestion(starter);
+    setMessages([
+      {
+        id: generateId(),
+        role: "interviewer",
+        content: starter,
+        timestamp: Date.now(),
+      },
+    ]);
+  }
+
+  function handleRestart() {
+    setDomain(null);
     setMessages([]);
-    setEvaluations([]);
-    setTotalScore(0);
-    setLastAccuracy(0);
-    setRecentFeedback('Assessment initiated. Awaiting first candidate answer.');
-    setEvaluatedBadges([]);
-    setShowReportModal(false);
-  };
+    setCurrentQuestion("");
+    setInputValue("");
+    setScorecard(emptyScorecard());
+    setShowReport(false);
+    setReport(null);
+    setErrorBanner(null);
+    strengthsRef.current = [];
+    improvementsRef.current = [];
+  }
 
-  const handleSend = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!input.trim() || loading) return;
+  async function handleSend() {
+    const trimmed = inputValue.trim();
+    if (!trimmed || !domain || isLoading) return;
 
-    const currentTurn = messages.filter(m => m.role === 'user').length + 1;
-    const userMsg: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: input,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      turnNumber: currentTurn
+    const candidateMessage: ChatMessage = {
+      id: generateId(),
+      role: "candidate",
+      content: trimmed,
+      timestamp: Date.now(),
     };
 
-    const updatedMessages = [...messages, userMsg];
+    const updatedMessages = [...messages, candidateMessage];
     setMessages(updatedMessages);
-    setInput('');
-    setLoading(true);
+    setInputValue("");
+    setIsLoading(true);
+    setErrorBanner(null);
 
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: updatedMessages,
-          topic: selectedDomains.join(', '),
+          domain,
+          question: currentQuestion,
+          answer: trimmed,
+          history: updatedMessages,
+          currentOverallScore: scorecard.overall,
         }),
       });
 
-      const data = await res.json();
-
-      const assistantMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: data.reply || "Let's explore fallback mechanics when primary LLM endpoints fail.",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        turnNumber: currentTurn + 1
-      };
-      setMessages([...updatedMessages, assistantMsg]);
-
-      // Handle evaluation safely with guaranteed fallback values if API structure drifts
-      const ev = data.evaluation || {
-        scoreDelta: 8,
-        accuracyScore: 78,
-        conceptCovered: selectedDomains[0] || 'Technical Analysis',
-        feedback: 'Good analytical breakdown of production mechanics.'
-      };
-
-      const newTotalScore = Math.max(0, Math.min(100, totalScore + (ev.scoreDelta ?? 10)));
-      const newAccuracy = ev.accuracyScore ?? 75;
-
-      setTotalScore(newTotalScore);
-      setLastAccuracy(newAccuracy);
-      setRecentFeedback(ev.feedback || 'Response analyzed successfully.');
-
-      const concept = ev.conceptCovered || selectedDomains[0] || 'Technical Logic';
-      if (!evaluatedBadges.includes(concept)) {
-        setEvaluatedBadges((prev) => [...prev, concept]);
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => null)) as ChatErrorBody | null;
+        throw new Error(errBody?.error ?? `Request failed with status ${res.status}`);
       }
 
-      const newEval: TurnEvaluation = {
-        turnNumber: currentTurn,
-        question: updatedMessages[updatedMessages.length - 2]?.content || '',
-        answer: userMsg.content,
-        scoreDelta: ev.scoreDelta ?? 10,
-        accuracyScore: newAccuracy,
-        conceptCovered: concept,
-        feedback: ev.feedback || 'Evaluated turn.',
-        strengths: newAccuracy >= 70 ? ['Clear technical reasoning', 'Good architecture trade-offs'] : ['Attempted structured breakdown'],
-        gaps: newAccuracy < 70 ? ['Needs deeper operational metrics', 'Expand failure mode handling'] : []
+      const data = (await res.json()) as ChatResponseBody;
+      const { evaluation } = data;
+
+      setLastFallback(evaluation.isFallback);
+      setScorecard((prev) => updateScorecard(prev, evaluation));
+      strengthsRef.current.push(...evaluation.strengths);
+      improvementsRef.current.push(...evaluation.improvements);
+
+      const feedbackMessage: ChatMessage = {
+        id: generateId(),
+        role: "system",
+        content: evaluation.feedback,
+        timestamp: Date.now(),
       };
-      
-      setEvaluations((prev) => [...prev, newEval]);
+
+      const nextQuestionMessage: ChatMessage = {
+        id: generateId(),
+        role: "interviewer",
+        content: evaluation.nextQuestion,
+        timestamp: Date.now() + 1,
+      };
+
+      setCurrentQuestion(evaluation.nextQuestion);
+      setMessages((prev) => [...prev, feedbackMessage, nextQuestionMessage]);
     } catch (err) {
-      console.error('Chat error:', err);
-      // Fallback update on network/API failure so UI never stays stuck
-      const fallbackMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: "That's a valid architectural approach. How would you handle latency spikes under heavy concurrent load?",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        turnNumber: currentTurn + 1
-      };
-      setMessages([...updatedMessages, fallbackMsg]);
-      setTotalScore(prev => Math.min(100, prev + 10));
-      setLastAccuracy(75);
-      setRecentFeedback('Response analyzed under resilient fallback mode.');
+      console.error(err);
+      setErrorBanner(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong while evaluating your answer. Please try again."
+      );
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
-  };
-
-  // --- Domain Selector Screen ---
-  if (!isStarted) {
-    return (
-      <div className="min-h-screen bg-[#FAFAF8] text-stone-800 flex flex-col justify-center items-center p-6">
-        <div className="max-w-3xl w-full space-y-8">
-          <div className="text-center space-y-3">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-teal-50 border border-teal-200 text-teal-700 text-xs font-semibold">
-              <Sparkles className="w-3.5 h-3.5 text-teal-600" /> AI Candidate Evaluation Platform
-            </div>
-            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-stone-900">
-              Welcome! Let&apos;s find the right challenge for you.
-            </h1>
-            <p className="text-stone-500 text-sm md:text-base leading-relaxed max-w-xl mx-auto">
-              Select one or more domain focus areas below to tailor your interactive technical assessment.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {DOMAINS.map((d) => {
-              const isSelected = selectedDomains.includes(d.id);
-              return (
-                <div
-                  key={d.id}
-                  onClick={() => {
-                    if (isSelected) {
-                      setSelectedDomains(selectedDomains.filter(id => id !== d.id));
-                    } else {
-                      setSelectedDomains([...selectedDomains, d.id]);
-                    }
-                  }}
-                  className={`cursor-pointer p-5 rounded-2xl border transition-all duration-200 bg-white shadow-sm hover:shadow-md ${isSelected
-                    ? 'border-amber-400 bg-amber-50/30 ring-2 ring-amber-400/20'
-                    : 'border-stone-200 hover:border-stone-300'
-                    }`}
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <span className="text-2xl p-2 rounded-xl bg-stone-100">{d.icon}</span>
-                    <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-stone-100 text-stone-600">
-                      {d.difficulty}
-                    </span>
-                  </div>
-                  <h3 className="font-semibold text-stone-900 text-base mb-1">{d.title}</h3>
-                  <p className="text-stone-500 text-xs leading-relaxed">{d.desc}</p>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="flex flex-col items-center gap-3 pt-4">
-            <button
-              onClick={handleStart}
-              disabled={selectedDomains.length === 0}
-              className="w-full md:w-auto px-8 py-3.5 rounded-xl font-medium text-sm text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-40 transition-all shadow-sm hover:shadow-md flex items-center justify-center gap-2"
-            >
-              Start Assessment <ArrowRight className="w-4 h-4" />
-            </button>
-            <span className="text-xs text-stone-400">
-              {selectedDomains.length > 0 ? `${selectedDomains.length} domain(s) selected` : 'Select at least one domain to begin'}
-            </span>
-          </div>
-        </div>
-      </div>
-    );
   }
 
-  // --- Main Dashboard Screen ---
-  return (
-    <div className="min-h-screen bg-[#FAFAF8] text-stone-800 flex flex-col font-sans">
-      {/* Header */}
-      <header className="bg-white border-b border-stone-200 sticky top-0 z-30 px-4 md:px-8 py-3.5 flex items-center justify-between shadow-xs">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleReset}
-            className="flex items-center gap-1.5 text-xs font-medium text-stone-500 hover:text-stone-800 transition-colors mr-1 pr-3 border-r border-stone-200"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" /> Back to Domains
-          </button>
+  function handleEndInterview() {
+    if (!domain) return;
+    const finalReport = buildHiringReport(
+      domain,
+      scorecard,
+      messages,
+      strengthsRef.current,
+      improvementsRef.current
+    );
+    setReport(finalReport);
+    setShowReport(true);
+  }
 
-          <div className="w-9 h-9 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-600 font-bold text-lg">
-            <Bot className="w-5 h-5" />
-          </div>
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void handleSend();
+    }
+  }
+
+  if (!domain) {
+    return <DomainSelector onSelect={handleSelectDomain} />;
+  }
+
+  return (
+    <div className="flex min-h-screen flex-col bg-slate-950">
+      {/* Header */}
+      <header className="flex items-center justify-between border-b border-slate-800 px-6 py-4">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-5 w-5 text-indigo-400" />
           <div>
-            <h1 className="text-sm font-semibold text-stone-900 leading-none">ABTalks Technical Interviewer</h1>
-            <p className="text-[11px] text-stone-400 mt-1">Active Domains: {selectedDomains.join(', ')}</p>
+            <h1 className="text-sm font-semibold text-white">AI Technical Interviewer</h1>
+            <p className="text-xs text-slate-500">{domain}</p>
           </div>
         </div>
-
-        {/* Tab Switcher & Actions */}
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs font-medium">
-            <button
-              onClick={() => setActiveTab('interview')}
-              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeTab === 'interview' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-500 hover:text-stone-800'
-                }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" /> Interview
-            </button>
-            <button
-              onClick={() => setActiveTab('transcript')}
-              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${activeTab === 'transcript' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-500 hover:text-stone-800'
-                }`}
-            >
-              <FileText className="w-3.5 h-3.5" /> Transcript ({evaluations.length})
-            </button>
-          </div>
-
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setShowMobileScorecard(!showMobileScorecard)}
-            className="lg:hidden p-2 rounded-lg border border-stone-200 bg-white text-stone-600 hover:bg-stone-50"
+            onClick={() => setShowTranscript((v) => !v)}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-800"
           >
-            <BarChart3 className="w-4 h-4" />
+            <ClipboardList className="h-3.5 w-3.5" />
+            {showTranscript ? "Hide Transcript" : "Show Transcript"}
           </button>
-
           <button
-            onClick={() => setShowReportModal(true)}
-            className="border border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-800 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-colors"
+            onClick={handleEndInterview}
+            disabled={scorecard.questionsAsked === 0}
+            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            View Report
-          </button>
-
-          <button
-            onClick={handleReset}
-            className="border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-colors hidden sm:block"
-          >
-            End Assessment
+            <FileText className="h-3.5 w-3.5" />
+            End Interview
           </button>
         </div>
       </header>
 
-      {/* Main Content Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 flex flex-col space-y-4">
-          <div className="sm:hidden flex bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs font-medium">
-            <button
-              onClick={() => setActiveTab('interview')}
-              className={`flex-1 py-1.5 text-center rounded-lg ${activeTab === 'interview' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-500'}`}
-            >
-              Interview
-            </button>
-            <button
-              onClick={() => setActiveTab('transcript')}
-              className={`flex-1 py-1.5 text-center rounded-lg ${activeTab === 'transcript' ? 'bg-white text-stone-900 shadow-xs' : 'text-stone-500'}`}
-            >
-              Transcript ({evaluations.length})
-            </button>
+      <div className="flex flex-1 overflow-hidden">
+        {/* Chat / Transcript column */}
+        <main className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto px-6 py-6">
+            <div className="mx-auto flex max-w-2xl flex-col gap-4">
+              {(showTranscript ? messages : messages.filter((m) => m.role !== "system")).map(
+                (message) => (
+                  <MessageBubble key={message.id} message={message} />
+                )
+              )}
+              {isLoading && (
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Evaluating your answer...
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
           </div>
 
-          {activeTab === 'interview' ? (
-            <InterviewChat
-              messages={messages}
-              input={input}
-              setInput={setInput}
-              handleSend={handleSend}
-              loading={loading}
-            />
-          ) : (
-            <TranscriptView evaluations={evaluations} />
+          {errorBanner && (
+            <div className="mx-6 mb-2 flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              {errorBanner}
+            </div>
           )}
-        </div>
 
-        <div className={`space-y-4 lg:block ${showMobileScorecard ? 'block' : 'hidden'}`}>
-          <ScorecardPanel
-            totalScore={totalScore}
-            lastAccuracy={lastAccuracy}
-            recentFeedback={recentFeedback}
-            evaluatedBadges={evaluatedBadges}
-            handleReset={handleReset}
-            onOpenReport={() => setShowReportModal(true)}
-          />
-        </div>
-      </main>
-
-      {showReportModal && (
-        <AssessmentReportModal
-          totalScore={totalScore}
-          evaluations={evaluations}
-          domains={selectedDomains}
-          onClose={() => setShowReportModal(false)}
-          onReset={handleReset}
-        />
-      )}
-    </div>
-  );
-}
-
-// ==========================================
-// Sub-Component 1: Interview Chat Interface
-// ==========================================
-function InterviewChat({
-  messages,
-  input,
-  setInput,
-  handleSend,
-  loading
-}: {
-  messages: Message[];
-  input: string;
-  setInput: (v: string) => void;
-  handleSend: (e?: React.FormEvent) => void;
-  loading: boolean;
-}) {
-  const chatBottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  return (
-    <div className="bg-white border border-stone-200 rounded-2xl shadow-sm flex flex-col h-[650px] overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-5 space-y-5">
-        {messages.map((m) => {
-          const isUser = m.role === 'user';
-          return (
-            <motion.div
-              key={m.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
-              className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
-            >
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs shrink-0 ${isUser ? 'bg-violet-100 text-violet-700' : 'bg-teal-100 text-teal-700'
-                }`}>
-                {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-              </div>
-
-              <div className={`max-w-[82%] space-y-1 ${isUser ? 'items-end' : 'items-start'}`}>
-                <div className={`p-4 rounded-2xl text-sm leading-relaxed ${isUser
-                  ? 'bg-violet-50/80 border border-violet-100 text-stone-800 rounded-tr-none'
-                  : 'bg-stone-50 border border-stone-200/80 text-stone-800 rounded-tl-none'
-                  }`}>
-                  {m.content}
-                </div>
-                <div className={`text-[10px] text-stone-400 px-1 ${isUser ? 'text-right' : 'text-left'}`}>
-                  Turn {m.turnNumber} • {m.timestamp}
-                </div>
-              </div>
-            </motion.div>
-          );
-        })}
-
-        {loading && (
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-xs">
-              <Bot className="w-4 h-4" />
+          {lastFallback && !errorBanner && (
+            <div className="mx-6 mb-2 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              The last evaluation used a fallback scorer (AI evaluator unavailable or answer too
+              short).
             </div>
-            <div className="bg-stone-50 border border-stone-200 rounded-2xl p-4 rounded-tl-none flex items-center gap-1.5">
-              <span className="w-2 h-2 bg-teal-500 rounded-full animate-bounce"></span>
-              <span className="w-2 h-2 bg-teal-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
-              <span className="w-2 h-2 bg-teal-500 rounded-full animate-bounce [animation-delay:0.4s]"></span>
-            </div>
-          </div>
-        )}
-        <div ref={chatBottomRef} />
-      </div>
+          )}
 
-      <form onSubmit={handleSend} className="p-4 border-t border-stone-200 bg-stone-50/50 flex flex-col gap-2">
-        <div className="relative flex items-center">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Type your technical response here..."
-            rows={2}
-            className="w-full bg-white border border-stone-200 rounded-xl px-4 py-3 text-sm text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 resize-none transition-all"
-          />
-          <button
-            type="submit"
-            disabled={loading || !input.trim()}
-            className="absolute right-3 bottom-3 p-2.5 rounded-lg bg-teal-500 hover:bg-teal-600 disabled:opacity-40 text-white transition-all shadow-xs"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </div>
-        <div className="flex items-center justify-between text-[11px] text-stone-400 px-1">
-          <span>Press <kbd className="px-1.5 py-0.5 bg-stone-200 rounded text-[10px] text-stone-600 font-mono">⌘ + Enter</kbd> to submit</span>
-          <span>{input.length} characters</span>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-// ==========================================
-// Sub-Component 2: Live Scorecard Panel
-// ==========================================
-function ScorecardPanel({
-  totalScore,
-  lastAccuracy,
-  recentFeedback,
-  evaluatedBadges,
-  handleReset,
-  onOpenReport
-}: {
-  totalScore: number;
-  lastAccuracy: number;
-  recentFeedback: string;
-  evaluatedBadges: string[];
-  handleReset: () => void;
-  onOpenReport: () => void;
-}) {
-  return (
-    <div className="sticky top-20 space-y-4">
-      <div className="bg-white border border-stone-200 rounded-2xl p-5 shadow-xs space-y-3">
-        <div className="flex items-center justify-between text-xs font-semibold text-stone-500 uppercase tracking-wider">
-          <span>Overall Technical Mastery</span>
-          <Award className="w-4 h-4 text-amber-500" />
-        </div>
-        <div className="flex items-baseline justify-between">
-          <span className="text-3xl font-bold font-mono text-stone-900">{totalScore}<span className="text-stone-400 text-lg font-normal">/100</span></span>
-          <span className="text-xs text-stone-500">Target Pass: 75</span>
-        </div>
-        <div className="w-full bg-stone-100 h-2.5 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-amber-400 to-teal-500 transition-all duration-500 rounded-full"
-            style={{ width: `${totalScore}%` }}
-          />
-        </div>
-        <button
-          onClick={onOpenReport}
-          className="w-full mt-2 py-2 px-3 bg-teal-50 hover:bg-teal-100 text-teal-700 text-xs font-medium rounded-xl border border-teal-200 transition-colors flex items-center justify-center gap-1.5"
-        >
-          <FileText className="w-3.5 h-3.5" /> View Final Hiring Report
-        </button>
-      </div>
-
-      <div className="bg-white border border-stone-200 rounded-2xl p-5 shadow-xs flex items-center justify-between">
-        <div className="space-y-1 max-w-[60%]">
-          <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Last Turn Accuracy</h3>
-          <p className="text-xs text-stone-500 leading-snug">Evaluated for architectural correctness & trade-off depth.</p>
-        </div>
-        <div className="relative w-16 h-16 flex items-center justify-center">
-          <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
-            <path
-              className="text-stone-100"
-              strokeWidth="3.5"
-              stroke="currentColor"
-              fill="none"
-              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-            />
-            <path
-              className={lastAccuracy >= 75 ? 'text-teal-500' : lastAccuracy >= 50 ? 'text-amber-500' : 'text-rose-400'}
-              strokeDasharray={`${lastAccuracy}, 100`}
-              strokeWidth="3.5"
-              strokeLinecap="round"
-              stroke="currentColor"
-              fill="none"
-              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-            />
-          </svg>
-          <span className="absolute font-mono font-bold text-xs text-stone-800">{lastAccuracy}%</span>
-        </div>
-      </div>
-
-      <div className="bg-white border border-stone-200 rounded-2xl p-5 shadow-xs space-y-2 border-l-4 border-l-amber-400">
-        <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Interviewer Critique</h3>
-        <p className="text-xs text-stone-700 italic leading-relaxed">&ldquo;{recentFeedback}&rdquo;</p>
-      </div>
-
-      <div className="bg-white border border-stone-200 rounded-2xl p-5 shadow-xs space-y-3">
-        <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Evaluated Competencies</h3>
-        <div className="flex flex-wrap gap-2">
-          {evaluatedBadges.length > 0 ? (
-            evaluatedBadges.map((b, i) => (
-              <span
-                key={i}
-                className="px-2.5 py-1 rounded-full text-xs font-medium bg-teal-50 border border-teal-200 text-teal-700 flex items-center gap-1"
+          <div className="border-t border-slate-800 px-6 py-4">
+            <div className="mx-auto flex max-w-2xl items-end gap-2">
+              <textarea
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Type your answer..."
+                rows={2}
+                disabled={isLoading}
+                className="flex-1 resize-none rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white placeholder-slate-500 outline-none focus:border-indigo-500 disabled:opacity-50"
+              />
+              <button
+                onClick={() => void handleSend()}
+                disabled={isLoading || !inputValue.trim()}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Send answer"
               >
-                <CheckCircle2 className="w-3 h-3 text-teal-500" /> {b}
-              </span>
-            ))
-          ) : (
-            <span className="text-xs text-stone-400 italic">No competencies tagged yet</span>
-          )}
-        </div>
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+          </div>
+        </main>
+
+        {/* Live scorecard panel */}
+        <aside className="hidden w-72 shrink-0 overflow-y-auto border-l border-slate-800 px-5 py-6 md:block">
+          <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Live Scorecard
+          </h2>
+          <div className="mb-6 mt-3 flex items-end gap-2">
+            <span className="text-4xl font-bold text-white">{scorecard.overall}</span>
+            <span className="mb-1 text-sm text-slate-500">/ 100</span>
+          </div>
+          {scorecard.categories.map((cat) => (
+            <ScoreBar key={cat.id} category={cat} />
+          ))}
+          <div className="mt-6 border-t border-slate-800 pt-4 text-xs text-slate-500">
+            {scorecard.questionsAsked} question{scorecard.questionsAsked === 1 ? "" : "s"}{" "}
+            answered
+          </div>
+        </aside>
       </div>
 
-      <button
-        onClick={handleReset}
-        className="w-full text-xs text-stone-400 hover:text-stone-600 flex items-center justify-center gap-1.5 py-2 transition-colors"
-      >
-        <RefreshCw className="w-3.5 h-3.5" /> Restart Session & Clear Data
-      </button>
+      <AnimatePresence>
+        {showReport && report && (
+          <HiringReportModal
+            report={report}
+            onClose={() => setShowReport(false)}
+            onRestart={handleRestart}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-// ==========================================
-// Sub-Component 3: Transcript View
-// ==========================================
-function TranscriptView({ evaluations }: { evaluations: TurnEvaluation[] }) {
-  const [expandedTurn, setExpandedTurn] = useState<number | null>(null);
-
-  if (evaluations.length === 0) {
+function MessageBubble({ message }: { message: ChatMessage }) {
+  if (message.role === "system") {
     return (
-      <div className="bg-white border border-stone-200 rounded-2xl p-12 text-center text-stone-400 space-y-2">
-        <FileText className="w-8 h-8 mx-auto text-stone-300" />
-        <p className="text-sm">No turn evaluations recorded yet. Complete an answer turn in the interview to view transcripts.</p>
-      </div>
+      <motion.div
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mx-auto flex max-w-md items-start gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2 text-xs text-slate-400"
+      >
+        <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-400" />
+        {message.content}
+      </motion.div>
     );
   }
 
-  return (
-    <div className="space-y-4">
-      {evaluations.map((ev) => {
-        const isExpanded = expandedTurn === ev.turnNumber;
-        return (
-          <div key={ev.turnNumber} className="bg-white border border-stone-200 rounded-2xl p-5 shadow-xs space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold px-2.5 py-1 bg-stone-100 rounded-md text-stone-600">
-                  Turn {ev.turnNumber}
-                </span>
-                <span className="text-xs text-teal-700 font-medium bg-teal-50 px-2.5 py-1 rounded-md border border-teal-200">
-                  {ev.conceptCovered}
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="font-mono text-sm font-bold text-stone-800">Accuracy: {ev.accuracyScore}%</span>
-                <button
-                  onClick={() => setExpandedTurn(isExpanded ? null : ev.turnNumber)}
-                  className="p-1 rounded-md text-stone-400 hover:text-stone-600"
-                >
-                  {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="text-xs space-y-1">
-              <p className="font-medium text-stone-800">Q: {ev.question}</p>
-              <p className="text-stone-600 line-clamp-2">A: {ev.answer}</p>
-            </div>
-
-            {isExpanded && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="pt-3 border-t border-stone-100 space-y-3 text-xs"
-              >
-                <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 text-stone-700 italic">
-                  &ldquo;{ev.feedback}&rdquo;
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <span className="font-semibold text-teal-700 flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Strengths
-                    </span>
-                    {ev.strengths.map((s, i) => (
-                      <div key={i} className="p-1.5 bg-teal-50/50 border border-teal-100 text-teal-800 rounded-lg text-[11px]">
-                        {s}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="space-y-1">
-                    <span className="font-semibold text-amber-700 flex items-center gap-1">
-                      <AlertCircle className="w-3.5 h-3.5" /> Areas to Expand
-                    </span>
-                    {ev.gaps.length > 0 ? (
-                      ev.gaps.map((g, i) => (
-                        <div key={i} className="p-1.5 bg-amber-50/50 border border-amber-100 text-amber-800 rounded-lg text-[11px]">
-                          {g}
-                        </div>
-                      ))
-                    ) : (
-                      <div className="p-1.5 bg-stone-50 text-stone-400 rounded-lg text-[11px]">None identified</div>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ==========================================
-// Sub-Component 4: Hiring Report Modal
-// ==========================================
-function AssessmentReportModal({
-  totalScore,
-  evaluations,
-  domains,
-  onClose,
-  onReset
-}: {
-  totalScore: number;
-  evaluations: TurnEvaluation[];
-  domains: AssessmentDomain[];
-  onClose: () => void;
-  onReset: () => void;
-}) {
-  const recommendation = totalScore >= 75 ? 'Strong Hire' : totalScore >= 55 ? 'Follow-up Needed' : 'Needs Growth';
-  const badgeColor = totalScore >= 75
-    ? 'bg-teal-50 border-teal-200 text-teal-800'
-    : totalScore >= 55
-      ? 'bg-amber-50 border-amber-200 text-amber-800'
-      : 'bg-rose-50 border-rose-200 text-rose-800';
+  const isInterviewer = message.role === "interviewer";
 
   return (
-    <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-      <motion.div
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="bg-white border border-stone-200 rounded-2xl max-w-xl w-full p-6 shadow-xl space-y-6 max-h-[90vh] overflow-y-auto"
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={`flex items-start gap-3 ${isInterviewer ? "" : "flex-row-reverse"}`}
+    >
+      <div
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+          isInterviewer ? "bg-indigo-600" : "bg-slate-700"
+        }`}
       >
-        <div className="flex items-center justify-between border-b border-stone-100 pb-4">
-          <div>
-            <h2 className="text-lg font-bold text-stone-900">Candidate Evaluation Summary</h2>
-            <p className="text-xs text-stone-400">Target Role: Senior Enterprise AI Engineer</p>
-          </div>
-          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${badgeColor}`}>
-            {recommendation}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="p-4 bg-stone-50 border border-stone-200 rounded-xl">
-            <span className="text-xs text-stone-500 block">Overall Mastery</span>
-            <span className="text-2xl font-mono font-bold text-teal-600">{totalScore} / 100</span>
-          </div>
-          <div className="p-4 bg-stone-50 border border-stone-200 rounded-xl">
-            <span className="text-xs text-stone-500 block">Evaluated Turns</span>
-            <span className="text-2xl font-mono font-bold text-stone-800">{evaluations.length} Turns</span>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Assessed Domains</h3>
-          <div className="flex flex-wrap gap-2">
-            {domains.map((d, i) => (
-              <span key={i} className="px-3 py-1 bg-stone-100 text-stone-700 text-xs rounded-lg border border-stone-200">
-                {d}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 text-xs">
-          <div className="space-y-2">
-            <h4 className="font-semibold text-teal-700 flex items-center gap-1">
-              <CheckCircle2 className="w-4 h-4" /> Key Strengths
-            </h4>
-            <ul className="space-y-1 text-stone-600 list-disc list-inside">
-              {evaluations.length > 0 ? evaluations.flatMap(e => e.strengths).slice(0, 2).map((s, idx) => <li key={idx}>{s}</li>) : <li>Solid analytical baseline</li>}
-            </ul>
-          </div>
-          <div className="space-y-2">
-            <h4 className="font-semibold text-amber-700 flex items-center gap-1">
-              <AlertCircle className="w-4 h-4" /> Areas for Growth
-            </h4>
-            <ul className="space-y-1 text-stone-600 list-disc list-inside">
-              {evaluations.length > 0 ? evaluations.flatMap(e => e.gaps).slice(0, 2).map((g, idx) => <li key={idx}>{g}</li>) : <li>Expand production edge-case coverage</li>}
-            </ul>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between border-t border-stone-100 pt-4">
-          <button
-            onClick={onReset}
-            className="text-xs text-rose-600 hover:text-rose-700 font-medium flex items-center gap-1"
-          >
-            <RefreshCw className="w-3.5 h-3.5" /> Reset All Data
-          </button>
-          
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => window.print()}
-              className="px-4 py-2 rounded-xl border border-stone-200 text-stone-600 text-xs font-medium hover:bg-stone-50 flex items-center gap-1.5"
-            >
-              <Download className="w-3.5 h-3.5" /> Export PDF
-            </button>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-stone-800 text-white text-xs font-medium hover:bg-stone-900"
-            >
-              Close Report
-            </button>
-          </div>
-        </div>
-      </motion.div>
-    </div>
+        {isInterviewer ? (
+          <Bot className="h-4 w-4 text-white" />
+        ) : (
+          <User className="h-4 w-4 text-white" />
+        )}
+      </div>
+      <div
+        className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+          isInterviewer
+            ? "bg-slate-900 text-slate-200"
+            : "bg-indigo-600 text-white"
+        }`}
+      >
+        {message.content}
+      </div>
+    </motion.div>
   );
 }
