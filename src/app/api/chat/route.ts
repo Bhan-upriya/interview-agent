@@ -78,7 +78,8 @@ const QUESTION_BANKS: Record<Domain, string[]> = {
 };
 
 export async function POST(req: Request) {
-  let domainParam: Domain = "Backend Development"; // Default fallback for error block
+  let domainParam: Domain = "Backend Development";
+  let previousQuestions: string[] = [];
 
   try {
     const body = (await req.json()) as ChatRequestBody;
@@ -95,16 +96,16 @@ export async function POST(req: Request) {
       );
     }
 
+    previousQuestions = history
+      ?.filter((m) => m.role === "interviewer")
+      .map((m) => m.content) || [];
+
     const apiKey = process.env.AGENTROUTER_API_KEY || process.env.GEMINI_API_KEY;
     const baseUrl = process.env.AGENTROUTER_BASE_URL || "https://generativelanguage.googleapis.com/v1beta";
 
     if (!apiKey) {
       throw new Error("API key environment variable is missing.");
     }
-
-    const previousQuestions = history
-      ?.filter((m) => m.role === "interviewer")
-      .map((m) => m.content) || [];
 
     const domainBank = QUESTION_BANKS[domain] || QUESTION_BANKS["Backend Development"];
 
@@ -167,7 +168,7 @@ Return your response strictly as a valid JSON object matching this exact structu
 
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
-      throw new Error(`API error: ${errText}`);
+      throw new Error(`API error (${geminiRes.status}): ${errText}`);
     }
 
     const data = await geminiRes.json();
@@ -180,14 +181,21 @@ Return your response strictly as a valid JSON object matching this exact structu
     const evaluation = JSON.parse(rawText) as EvaluationResult;
     return NextResponse.json({ evaluation } satisfies ChatResponseBody);
   } catch (error) {
-    console.error("API Route Error:", error);
+    console.error("API Route Error Details:", error);
+
+    // Dynamically pick the next unasked question from the bank as a robust fallback
+    const domainBank = QUESTION_BANKS[domainParam] || QUESTION_BANKS["Backend Development"];
+    const unaskedQuestions = domainBank.filter((q) => !previousQuestions.includes(q));
+    const nextFallbackQuestion = unaskedQuestions.length > 0 
+      ? unaskedQuestions[0] 
+      : `Can you discuss another advanced concept in ${domainParam}?`;
 
     const emergencyEvaluation: EvaluationResult = {
-      categoryScores: { correctness: 10, clarity: 10, depth: 10, communication: 10 },
+      categoryScores: { correctness: 15, clarity: 15, depth: 15, communication: 15 },
       strengths: [],
-      improvements: ["Please provide a more detailed technical explanation."],
-      feedback: "We had trouble evaluating that response. Let's move forward.",
-      nextQuestion: `Can you explain a different concept regarding ${domainParam}?`,
+      improvements: ["Provide a more comprehensive technical explanation."],
+      feedback: "Let's move on to the next technical topic.",
+      nextQuestion: nextFallbackQuestion,
       isFallback: true,
     };
 
