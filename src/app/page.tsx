@@ -126,7 +126,7 @@ export default function InterviewerDashboard() {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/chat', {
+      const res = await fetch('/api/interview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
