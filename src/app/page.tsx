@@ -4,9 +4,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Bot, User, Send, CheckCircle2, AlertCircle, RefreshCw,
   FileText, ArrowRight, ArrowLeft, Award, BarChart3, ChevronDown, ChevronUp,
-  Download, Sparkles, SlidersHorizontal, LayoutDashboard, MessageSquare
+  Download, Sparkles, MessageSquare
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Message, TurnEvaluation, AssessmentDomain } from '@/types/interview';
 
 // --- Domain Configurations ---
@@ -37,7 +37,6 @@ export default function InterviewerDashboard() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [showMobileScorecard, setShowMobileScorecard] = useState(false);
 
-
   // --- LocalStorage Persistence ---
   useEffect(() => {
     const saved = localStorage.getItem('interview_session_v2');
@@ -49,7 +48,6 @@ export default function InterviewerDashboard() {
           setSelectedDomains(parsed.selectedDomains || []);
           setMessages(parsed.messages || []);
           setEvaluations(parsed.evaluations || []);
-          // Use ?? instead of || so 0 is recognized as a valid score
           setTotalScore(parsed.totalScore ?? 0);
           setLastAccuracy(parsed.lastAccuracy ?? 0);
           setRecentFeedback(parsed.recentFeedback || 'Assessment initiated.');
@@ -73,7 +71,6 @@ export default function InterviewerDashboard() {
     if (selectedDomains.length === 0) return;
     setIsStarted(true);
 
-    // Reset initial metrics to zero
     setTotalScore(0);
     setLastAccuracy(0);
     setRecentFeedback('Assessment initiated. Awaiting first candidate answer.');
@@ -89,13 +86,10 @@ export default function InterviewerDashboard() {
     setMessages([initialMsg]);
   };
 
-  // --- Fully resets session state and returns user to the Domain Selector ---
   const handleReset = () => {
-    // Clear all storage so old states don't reload on refresh
     localStorage.clear();
     sessionStorage.clear();
 
-    // Reset UI state to show Domain Selector
     setIsStarted(false);
     setSelectedDomains([]);
     setMessages([]);
@@ -172,7 +166,6 @@ export default function InterviewerDashboard() {
         const updatedEvaluations = [...evaluations, newEval];
         setEvaluations(updatedEvaluations);
 
-        // Optional auto-trigger modal after 4 or more evaluation turns
         if (updatedEvaluations.length >= 4) {
           setTimeout(() => setShowReportModal(true), 1000);
         }
@@ -255,7 +248,6 @@ export default function InterviewerDashboard() {
       {/* Header */}
       <header className="bg-white border-b border-stone-200 sticky top-0 z-30 px-4 md:px-8 py-3.5 flex items-center justify-between shadow-xs">
         <div className="flex items-center gap-3">
-          {/* Exit hatch: returns to Domain Selector at any point */}
           <button
             onClick={handleReset}
             className="flex items-center gap-1.5 text-xs font-medium text-stone-500 hover:text-stone-800 transition-colors mr-1 pr-3 border-r border-stone-200"
@@ -298,7 +290,6 @@ export default function InterviewerDashboard() {
             <BarChart3 className="w-4 h-4" />
           </button>
 
-          {/* Trigger Final Evaluation Modal manually */}
           <button
             onClick={() => setShowReportModal(true)}
             className="border border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-800 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-colors hidden sm:block"
@@ -317,11 +308,7 @@ export default function InterviewerDashboard() {
 
       {/* Main Content Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {/* Left Panel: Chat or Transcript View */}
         <div className="lg:col-span-2 flex flex-col space-y-4">
-
-          {/* Mobile Tab Switcher */}
           <div className="sm:hidden flex bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs font-medium">
             <button
               onClick={() => setActiveTab('interview')}
@@ -350,7 +337,6 @@ export default function InterviewerDashboard() {
           )}
         </div>
 
-        {/* Right Sticky Sidebar Scorecard */}
         <div className={`space-y-4 lg:block ${showMobileScorecard ? 'block' : 'hidden'}`}>
           <ScorecardPanel
             totalScore={totalScore}
@@ -363,7 +349,6 @@ export default function InterviewerDashboard() {
         </div>
       </main>
 
-      {/* Assessment Final Modal */}
       {showReportModal && (
         <AssessmentReportModal
           totalScore={totalScore}
@@ -408,7 +393,6 @@ function InterviewChat({
 
   return (
     <div className="bg-white border border-stone-200 rounded-2xl shadow-sm flex flex-col h-[650px] overflow-hidden">
-      {/* Scrollable Message List */}
       <div className="flex-1 overflow-y-auto p-5 space-y-5">
         {messages.map((m) => {
           const isUser = m.role === 'user';
@@ -455,7 +439,6 @@ function InterviewChat({
         <div ref={chatBottomRef} />
       </div>
 
-      {/* Auto-expanding Input Box */}
       <form onSubmit={handleSend} className="p-4 border-t border-stone-200 bg-stone-50/50 flex flex-col gap-2">
         <div className="relative flex items-center">
           <textarea
@@ -503,7 +486,6 @@ function ScorecardPanel({
 }) {
   return (
     <div className="sticky top-20 space-y-4">
-      {/* Card 1: Overall Score */}
       <div className="bg-white border border-stone-200 rounded-2xl p-5 shadow-xs space-y-3">
         <div className="flex items-center justify-between text-xs font-semibold text-stone-500 uppercase tracking-wider">
           <span>Overall Technical Mastery</span>
@@ -527,7 +509,6 @@ function ScorecardPanel({
         </button>
       </div>
 
-      {/* Card 2: Radial Accuracy Gauge */}
       <div className="bg-white border border-stone-200 rounded-2xl p-5 shadow-xs flex items-center justify-between">
         <div className="space-y-1 max-w-[60%]">
           <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Last Turn Accuracy</h3>
@@ -556,13 +537,11 @@ function ScorecardPanel({
         </div>
       </div>
 
-      {/* Card 3: Real-Time Critique */}
       <div className="bg-white border border-stone-200 rounded-2xl p-5 shadow-xs space-y-2 border-l-4 border-l-amber-400">
         <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Interviewer Critique</h3>
         <p className="text-xs text-stone-700 italic leading-relaxed">&ldquo;{recentFeedback}&rdquo;</p>
       </div>
 
-      {/* Card 4: Evaluated Badges */}
       <div className="bg-white border border-stone-200 rounded-2xl p-5 shadow-xs space-y-3">
         <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Evaluated Competencies</h3>
         <div className="flex flex-wrap gap-2">
