@@ -1,30 +1,52 @@
 import { NextResponse } from 'next/server';
+import { GoogleGenAI } from '@google/genai';
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export async function POST(req: Request) {
   try {
-    const { domain, action, messages } = await req.json();
+    const { messages, topic } = await req.json();
+    const latestMessage = messages[messages.length - 1]?.content || '';
 
-    if (action === 'start') {
-      // Return initial domain-specific question
-      let question = `Welcome to your AI technical assessment on ${domain}. Let's start with a core concept: What are the primary architectural challenges or design patterns when building robust systems for ${domain}?`;
-      
-      if (domain === 'Agent Orchestration') {
-        question = "Welcome to your AI Technical Assessment! We will focus on: Agent Orchestration. Let's start with Retrieval-Augmented Generation: How do you choose the right chunking strategy and embedding model for structured technical documents?";
-      } else if (domain === 'Vector Search') {
-        question = "Welcome to your AI Technical Assessment on Vector Search. How do you choose between Cosine similarity, Dot Product, and L2 Euclidean distance when scaling vector indices for high-dimensional technical embeddings?";
-      }
-
-      return NextResponse.json({ question });
-    }
-
-    // Handle subsequent conversational turns
-    const lastUserMessage = messages[messages.length - 1]?.content || '';
+    // Prompt the model to act as a technical interviewer and return strict JSON
+    const prompt = `
+    You are an expert technical interviewer assessing a candidate in: ${topic}.
+    The candidate just answered: "${latestMessage}"
     
-    // Simple dynamic response simulation (or plug in your OpenAI/Gemini SDK call here)
-    const reply = `That is a solid perspective on ${domain}. Building on your point regarding "${lastUserMessage.slice(0, 30)}...", how would you handle edge cases, latency constraints, or failure modes in production?`;
+    Evaluate this response objectively. Return a valid JSON object ONLY, with no markdown formatting or backticks, structured exactly like this:
+    {
+      "reply": "Your conversational follow-up question or critique addressing their specific answer directly.",
+      "evaluation": {
+        "scoreDelta": <number between -10 and 15 based on answer quality>,
+        "accuracyScore": <percentage number between 0 and 100 representing answer correctness>,
+        "conceptCovered": "<short specific sub-concept name evaluated>",
+        "feedback": "<1 sentence actionable critique of their response>"
+      }
+    }
+    `;
 
-    return NextResponse.json({ reply });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to process chat request' }, { status: 500 });
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+
+    const text = response.text || '';
+    // Clean up any accidental markdown blocks
+    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const parsedData = JSON.parse(cleanJson);
+
+    return NextResponse.json(parsedData);
+  } catch (error: any) {
+    console.error('API Error:', error);
+    // Fallback response if API key or model fails
+    return NextResponse.json({
+      reply: "That's an interesting point. Let's dig deeper into how you handle edge cases and monitoring under load.",
+      evaluation: {
+        scoreDelta: 5,
+        accuracyScore: 65,
+        conceptCovered: "System Architecture",
+        feedback: "Provided a general perspective; consider incorporating specific failure mitigation strategies."
+      }
+    });
   }
 }
