@@ -4,28 +4,13 @@ import type { ChatRequestBody, ChatResponseBody, EvaluationResult } from "@/type
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as ChatRequestBody;
-    const { domain, question, answer } = body;
+    const { domain, question, answer, history } = body;
 
     if (!domain || !question || !answer) {
       return NextResponse.json(
         { error: "Missing required fields: domain, question, or answer." },
         { status: 400 }
       );
-    }
-
-    // Handle short answers / skips
-    const isShortOrIdk = answer.trim().length < 5 || /i don't know|idk|pass|skip|no idea/i.test(answer);
-
-    if (isShortOrIdk) {
-      const fallbackEvaluation: EvaluationResult = {
-        categoryScores: { correctness: 10, clarity: 20, depth: 10, communication: 20 },
-        strengths: [],
-        improvements: ["Candidate elected to skip or lacked familiarity with the topic."],
-        feedback: "Skipping questions or providing very brief answers makes it difficult to assess competence.",
-        nextQuestion: `Let's pivot slightly within ${domain}. Can you describe a technical challenge you recently faced and how you solved it?`,
-        isFallback: true,
-      };
-      return NextResponse.json({ evaluation: fallbackEvaluation } satisfies ChatResponseBody);
     }
 
     // Support both AgentRouter and native Gemini keys
@@ -36,25 +21,37 @@ export async function POST(req: Request) {
       throw new Error("API key environment variable is missing.");
     }
 
+    // Extract previous questions from history to prevent repetition
+    const previousQuestions = history
+      ?.filter((m) => m.role === "interviewer")
+      .map((m) => m.content)
+      .join("\n- ") || "";
+
     const prompt = `
 You are an expert technical interviewer conducting a professional interview for the domain: "${domain}".
+
+PREVIOUSLY ASKED QUESTIONS (DO NOT repeat these or ask similar ones):
+- ${previousQuestions}
+
 The candidate was just asked this question:
 "${question}"
 
 The candidate responded with:
 "${answer}"
 
-Evaluate this answer objectively. Provide scores from 0 to 100 for four criteria:
+Evaluate this answer objectively. If the answer is incorrect, vague, says "I don't know", skips the question, or is nonsense, give very low scores (between 0 and 25) for correctness, clarity, depth, and communication. Accuracy should only increase for genuinely correct, detailed answers and must decrease for wrong or skipped answers.
+
+Provide scores from 0 to 100 for four criteria:
 1. correctness (technical accuracy)
 2. clarity (how well structured and understandable the explanation is)
 3. depth (understanding of underlying mechanics or edge cases)
 4. communication (professional articulation)
 
 Also provide:
-- A short list of strengths shown in the answer (0 to 2 items).
-- A short list of areas for improvement (0 to 2 items).
+- A short list of strengths shown in the answer (empty array [] if the answer was wrong or skipped).
+- A short list of areas for improvement (1 to 2 items explaining what was missing or incorrect).
 - Constructive feedback on the candidate's answer.
-- The next logical technical interview question to ask, following up on their response or moving to the next core concept in ${domain}.
+- A completely NEW and DIFFERENT technical interview question to ask next within ${domain}, ensuring it is NOT in the list of previously asked questions.
 
 You MUST return your response strictly as a JSON object matching this exact structure without any markdown backticks or extra text:
 {
@@ -72,7 +69,6 @@ You MUST return your response strictly as a JSON object matching this exact stru
 }
 `;
 
-    // Dynamically route between AgentRouter and standard Gemini endpoint based on baseUrl config
     const isAgentRouter = baseUrl.includes("agentrouter.org");
     const endpoint = isAgentRouter
       ? `${baseUrl}/models/gemini-2.5-flash:generateContent`
@@ -90,7 +86,7 @@ You MUST return your response strictly as a JSON object matching this exact stru
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           responseMimeType: "application/json",
-          temperature: 0.3,
+          temperature: 0.7, // Slightly higher temperature to encourage diverse new questions
         },
       }),
     });
@@ -113,11 +109,11 @@ You MUST return your response strictly as a JSON object matching this exact stru
     console.error("API Route Error:", error);
 
     const emergencyEvaluation: EvaluationResult = {
-      categoryScores: { correctness: 50, clarity: 50, depth: 50, communication: 50 },
-      strengths: ["Completed response cycle."],
-      improvements: ["Could not fully analyze due to transient system load."],
-      feedback: "We recorded your response successfully.",
-      nextQuestion: "Let's proceed: Can you explain how you handle performance bottlenecks or debugging in production systems?",
+      categoryScores: { correctness: 20, clarity: 20, depth: 20, communication: 20 },
+      strengths: [],
+      improvements: ["Could not fully analyze due to network or service lag."],
+      feedback: "We recorded your response, but experienced a brief evaluation glitch.",
+      nextQuestion: `Let's try a different concept in ${domain}. Can you explain how you handle state management and data flow?`,
       isFallback: true,
     };
 
