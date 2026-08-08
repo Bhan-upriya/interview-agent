@@ -78,9 +78,15 @@ const QUESTION_BANKS: Record<Domain, string[]> = {
 };
 
 export async function POST(req: Request) {
+  let domainParam: Domain = "Backend Development"; // Default fallback for error block
+
   try {
     const body = (await req.json()) as ChatRequestBody;
     const { domain, question, answer, history } = body;
+    
+    if (domain) {
+      domainParam = domain;
+    }
 
     if (!domain || !question || !answer) {
       return NextResponse.json(
@@ -176,13 +182,12 @@ Return your response strictly as a valid JSON object matching this exact structu
   } catch (error) {
     console.error("API Route Error:", error);
 
-    // Provide low emergency scores so accuracy drops on failure instead of climbing
     const emergencyEvaluation: EvaluationResult = {
       categoryScores: { correctness: 10, clarity: 10, depth: 10, communication: 10 },
       strengths: [],
       improvements: ["Please provide a more detailed technical explanation."],
       feedback: "We had trouble evaluating that response. Let's move forward.",
-      nextQuestion: `Can you explain a different concept regarding ${domain}?`,
+      nextQuestion: `Can you explain a different concept regarding ${domainParam}?`,
       isFallback: true,
     };
 
