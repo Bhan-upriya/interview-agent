@@ -104,8 +104,6 @@ const STARTER_QUESTIONS: Record<Domain, string> = {
     "What is the core difference between supervised, unsupervised, and reinforcement learning paradigms?",
 };
 
-const EMA_WEIGHT = 0.4;
-
 function generateId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -131,14 +129,18 @@ function emptyScorecard(): Scorecard {
   };
 }
 
+// Fixed update logic: weights fresh incoming scores dynamically so every turn changes the total score accurately
 function updateScorecard(prev: Scorecard, evaluation: EvaluationResult): Scorecard {
-  const isFirst = prev.questionsAsked === 0;
-
   const categories: ScoreCategory[] = CATEGORY_ORDER.map((id) => {
     const prevCategory = prev.categories.find((c) => c.id === id);
     const prevScore = prevCategory?.score ?? 0;
     const incoming = clamp(evaluation.categoryScores[id]);
-    const newScore = isFirst ? incoming : clamp(prevScore * (1 - EMA_WEIGHT) + incoming * EMA_WEIGHT);
+    
+    // Use progressive averaging so later answers accurately adjust the current total score up or down
+    const newScore = prev.questionsAsked === 0 
+      ? incoming 
+      : clamp(Math.round((prevScore * prev.questionsAsked + incoming) / (prev.questionsAsked + 1)));
+
     return {
       id,
       label: CATEGORY_LABELS[id],
@@ -148,7 +150,7 @@ function updateScorecard(prev: Scorecard, evaluation: EvaluationResult): Scoreca
   });
 
   const overall = clamp(
-    categories.reduce((sum, c) => sum + c.score, 0) / categories.length
+    Math.round(categories.reduce((sum, c) => sum + c.score, 0) / categories.length)
   );
 
   return {
