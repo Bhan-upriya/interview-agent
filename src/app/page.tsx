@@ -39,7 +39,7 @@ export default function InterviewerDashboard() {
 
   // --- LocalStorage Persistence ---
   useEffect(() => {
-    const saved = localStorage.getItem('interview_session_v2');
+    const saved = localStorage.getItem('interview_session_v3');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -61,7 +61,7 @@ export default function InterviewerDashboard() {
 
   useEffect(() => {
     if (isStarted) {
-      localStorage.setItem('interview_session_v2', JSON.stringify({
+      localStorage.setItem('interview_session_v3', JSON.stringify({
         isStarted, selectedDomains, messages, evaluations, totalScore, lastAccuracy, recentFeedback, evaluatedBadges
       }));
     }
@@ -76,10 +76,25 @@ export default function InterviewerDashboard() {
     setRecentFeedback('Assessment initiated. Awaiting first candidate answer.');
     setEvaluatedBadges([]);
 
+    const primaryDomain = selectedDomains[0];
+    let starterQuestion = `Let's start with ${primaryDomain}: How do you approach the core architectural design and failure boundaries for this domain?`;
+    
+    if (primaryDomain === 'Enterprise RAG') {
+      starterQuestion = `Let's start with Enterprise RAG: How do you choose the right chunking strategy and hybrid search parameters for structured technical documents?`;
+    } else if (primaryDomain === 'Vector Search') {
+      starterQuestion = `Let's start with Vector Search: How do you balance recall and query latency when configuring HNSW index parameters and vector quantization?`;
+    } else if (primaryDomain === 'Agent Orchestration') {
+      starterQuestion = `Let's start with Agent Orchestration: How do you handle tool-calling error recovery and infinite loops in multi-agent workflows?`;
+    } else if (primaryDomain === 'System Design') {
+      starterQuestion = `Let's start with System Design: How do you design rate-limiting, token-bucket budgeting, and fallback pathways when primary LLM endpoints degrade?`;
+    } else if (primaryDomain === 'Fine-Tuning & LLMOps') {
+      starterQuestion = `Let's start with Fine-Tuning & LLMOps: When would you choose QLoRA over full parameter fine-tuning, and how do you track evaluation degradation?`;
+    }
+
     const initialMsg: Message = {
       id: '1',
       role: 'assistant',
-      content: `Welcome to your AI Technical Assessment! We will focus on: ${selectedDomains.join(', ')}. Let's start with Retrieval-Augmented Generation: How do you choose the right chunking strategy and embedding model for structured technical documents?`,
+      content: `Welcome to your AI Technical Assessment! We will focus on: ${selectedDomains.join(', ')}. ${starterQuestion}`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       turnNumber: 1
     };
@@ -147,8 +162,9 @@ export default function InterviewerDashboard() {
         setLastAccuracy(ev.accuracyScore ?? 50);
         setRecentFeedback(ev.feedback || 'Response analyzed.');
 
-        if (ev.conceptCovered && !evaluatedBadges.includes(ev.conceptCovered)) {
-          setEvaluatedBadges((prev) => [...prev, ev.conceptCovered]);
+        const concept = ev.conceptCovered || selectedDomains[0] || 'Technical Logic';
+        if (!evaluatedBadges.includes(concept)) {
+          setEvaluatedBadges((prev) => [...prev, concept]);
         }
 
         const newEval: TurnEvaluation = {
@@ -157,18 +173,14 @@ export default function InterviewerDashboard() {
           answer: userMsg.content,
           scoreDelta: ev.scoreDelta ?? 0,
           accuracyScore: ev.accuracyScore ?? 50,
-          conceptCovered: ev.conceptCovered || 'Technical Logic',
+          conceptCovered: concept,
           feedback: ev.feedback || 'Evaluated turn.',
-          strengths: ev.accuracyScore >= 70 ? ['Clear explanation', 'Valid architecture trade-offs'] : ['Attempted response'],
-          gaps: ev.accuracyScore < 70 ? ['Missing operational detail', 'Skipped failure modes'] : []
+          strengths: ev.accuracyScore >= 70 ? ['Clear technical logic', 'Valid architecture trade-offs'] : ['Attempted response'],
+          gaps: ev.accuracyScore < 70 ? ['Missing operational depth', 'Skipped failure modes'] : []
         };
         
         const updatedEvaluations = [...evaluations, newEval];
         setEvaluations(updatedEvaluations);
-
-        if (updatedEvaluations.length >= 4) {
-          setTimeout(() => setShowReportModal(true), 1000);
-        }
       }
     } catch (err) {
       console.error(err);
@@ -292,14 +304,14 @@ export default function InterviewerDashboard() {
 
           <button
             onClick={() => setShowReportModal(true)}
-            className="border border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-800 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-colors hidden sm:block"
+            className="border border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-800 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-colors"
           >
             View Report
           </button>
 
           <button
             onClick={handleReset}
-            className="border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-colors"
+            className="border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-colors hidden sm:block"
           >
             End Assessment
           </button>
@@ -724,9 +736,8 @@ function AssessmentReportModal({
               <CheckCircle2 className="w-4 h-4" /> Key Strengths
             </h4>
             <ul className="space-y-1 text-stone-600 list-disc list-inside">
-              <li>Solid grasp of chunking boundaries</li>
-              <li>Good system resiliency considerations</li>
-              <li>Understands vector distance metrics</li>
+              <li>Solid grasp of structural logic</li>
+              <li>Good architectural trade-offs</li>
             </ul>
           </div>
           <div className="space-y-2">
@@ -734,8 +745,8 @@ function AssessmentReportModal({
               <AlertCircle className="w-4 h-4" /> Areas for Growth
             </h4>
             <ul className="space-y-1 text-stone-600 list-disc list-inside">
-              <li>Needs deeper latency profiling metrics</li>
-              <li>Expand on quantization (PQ vs HNSW)</li>
+              <li>Needs deeper operational profiling metrics</li>
+              <li>Expand on production edge-case validation</li>
             </ul>
           </div>
         </div>
