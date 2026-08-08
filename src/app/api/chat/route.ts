@@ -79,7 +79,7 @@ export async function POST(req: Request) {
     const domainBank = QUESTION_BANKS[domain] || QUESTION_BANKS["Backend Development"];
 
     const prompt = `
-You are an expert technical interviewer conducting a professional interview for the domain: "${domain}".
+You are an expert technical interviewer conducting a strict and professional interview for the domain: "${domain}".
 
 MASTER QUESTION POOL FOR THIS DOMAIN:
 ${JSON.stringify(domainBank, null, 2)}
@@ -94,11 +94,12 @@ The candidate responded with:
 "${answer}"
 
 Instructions:
-1. Evaluate the candidate's answer strictly and objectively:
+1. Deeply analyze the candidate's exact response text for technical accuracy, depth, clarity, and communication.
    - If the answer is incorrect, negative (e.g., "no", "I don't know"), irrelevant, or extremely brief, award very low scores (0 to 20).
    - If the answer is partially correct, award moderate scores (40 to 60).
-   - If the answer is comprehensive and accurate, award high scores (75 to 100).
-2. Select the next question from the MASTER QUESTION POOL above that has NOT been asked yet. If all questions have been exhausted, invent a relevant follow-up question within "${domain}".
+   - If the answer is comprehensive, technically accurate, and well-reasoned, award high scores (75 to 100).
+2. Extract tailored, specific **strengths** and **improvements** based explicitly on what the candidate wrote in their answer. Avoid generic filler text.
+3. Select the next unasked question from the MASTER QUESTION POOL above. If all have been exhausted, invent a relevant follow-up question within "${domain}".
 
 Return your response strictly as a valid JSON object matching this exact structure without any markdown backticks or extra text:
 {
@@ -161,7 +162,6 @@ Return your response strictly as a valid JSON object matching this exact structu
       ? unaskedQuestions[0] 
       : `Can you discuss another concept in ${domainParam}?`;
 
-    // Dynamic fallback checking: if the answer is "no" or short, give low scores to reflect incorrectness
     const isNegativeOrShort = 
       candidateAnswer.trim().toLowerCase() === "no" || 
       candidateAnswer.trim().toLowerCase() === "i don't know" || 
@@ -176,10 +176,12 @@ Return your response strictly as a valid JSON object matching this exact structu
         depth: scoreValue, 
         communication: scoreValue 
       },
-      strengths: isNegativeOrShort ? [] : ["Demonstrated technical understanding."],
-      improvements: isNegativeOrShort ? ["Provide a detailed, complete technical explanation instead of a refusal or short response."] : ["Expand further on technical specifics."],
+      strengths: isNegativeOrShort ? [] : [`Addressed the prompt regarding ${domainParam} with valid points.`],
+      improvements: isNegativeOrShort 
+        ? ["Avoid answering with single-word refusals; provide full technical details."] 
+        : ["Elaborate further on architectural trade-offs."],
       feedback: isNegativeOrShort 
-        ? "That response was insufficient or incorrect. Please provide detailed technical answers." 
+        ? "That response was insufficient. Please explain your reasoning thoroughly." 
         : "Response noted. Let's proceed to the next question.",
       nextQuestion: nextFallbackQuestion,
       isFallback: true,
