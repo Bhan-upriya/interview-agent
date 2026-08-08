@@ -91,17 +91,17 @@ const CATEGORY_ORDER: ScoreCategory["id"][] = [
 
 const STARTER_QUESTIONS: Record<Domain, string> = {
   "Frontend Development":
-    "Let's start simple: what happens in the browser between typing a URL and seeing the page render?",
+    "What happens in the browser between typing a URL and seeing the page render?",
   "Backend Development":
-    "To start, how would you design a simple REST API for a to-do list application?",
+    "How would you design a scalable REST API for a high-traffic to-do list application?",
   "Data Structures & Algorithms":
-    "Let's begin: can you explain the difference between a stack and a queue, and give a real use case for each?",
+    "What is the difference between a stack and a queue, and what are their underlying memory implications?",
   "System Design":
-    "For our first question: how would you approach designing a scalable notification system?",
+    "How would you approach designing a global, scalable real-time notification system?",
   "DevOps & Cloud":
-    "To start: what is the difference between a container and a virtual machine?",
+    "What is the fundamental architectural difference between a Linux container and a traditional virtual machine?",
   "Machine Learning":
-    "Let's start with the basics: what's the difference between supervised and unsupervised learning?",
+    "What is the core difference between supervised, unsupervised, and reinforcement learning paradigms?",
 };
 
 const EMA_WEIGHT = 0.4;
@@ -200,7 +200,7 @@ function buildHiringReport(
 }
 
 // ---------------------------------------------------------------------------
-// Presentational Components (Light & Warm Aesthetic)
+// Presentational Components
 // ---------------------------------------------------------------------------
 
 function DeltaBadge({ delta }: { delta: number }) {
@@ -555,7 +555,6 @@ export default function InterviewDashboard() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[#FDFBF7] text-stone-900">
-      {/* Header */}
       <header className="flex items-center justify-between border-b border-stone-200 bg-white/80 px-6 py-4 backdrop-blur-md sticky top-0 z-20 shadow-xs">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-700 shadow-xs">
@@ -586,7 +585,6 @@ export default function InterviewDashboard() {
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Chat / Transcript column */}
         <main className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
             <div className="mx-auto flex max-w-2xl flex-col gap-4">
@@ -619,7 +617,6 @@ export default function InterviewDashboard() {
             </div>
           )}
 
-          {/* Input Box Area */}
           <div className="border-t border-stone-200 bg-white px-4 py-4 sm:px-6 shadow-sm">
             <div className="mx-auto flex max-w-2xl items-end gap-2">
               <textarea
@@ -647,7 +644,6 @@ export default function InterviewDashboard() {
           </div>
         </main>
 
-        {/* Live scorecard panel */}
         <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-stone-200 bg-white px-6 py-6 lg:block shadow-xs">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xs font-bold uppercase tracking-wider text-stone-500">

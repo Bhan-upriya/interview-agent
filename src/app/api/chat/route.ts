@@ -176,12 +176,13 @@ Return your response strictly as a valid JSON object matching this exact structu
   } catch (error) {
     console.error("API Route Error:", error);
 
+    // Provide low emergency scores so accuracy drops on failure instead of climbing
     const emergencyEvaluation: EvaluationResult = {
-      categoryScores: { correctness: 20, clarity: 20, depth: 20, communication: 20 },
+      categoryScores: { correctness: 10, clarity: 10, depth: 10, communication: 10 },
       strengths: [],
-      improvements: ["Could not fully analyze due to network latency."],
-      feedback: "We recorded your response, but encountered a minor processing delay.",
-      nextQuestion: "Let's move to another core concept: Can you describe how you approach writing clean, maintainable code and handling edge cases?",
+      improvements: ["Please provide a more detailed technical explanation."],
+      feedback: "We had trouble evaluating that response. Let's move forward.",
+      nextQuestion: `Can you explain a different concept regarding ${domain}?`,
       isFallback: true,
     };
 
